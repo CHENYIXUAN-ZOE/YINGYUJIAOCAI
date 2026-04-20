@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>口语练习 - 教材解析</title>
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <p class="eyebrow">Textbook Parser Skeleton</p>
+        <h1>教材解析与结构化内容生成</h1>
+        <p class="intro">上传英文教材 PDF，生成可审核、可导出的结构化单元内容。</p>
+        <div class="hero-actions">
+          <a class="button-link" href="/overview">查看功能总览</a>
+        </div>
+      </section>
+      <section class="panel">
+        <h2>上传 PDF</h2>
+        <form id="upload-form">
+          <input id="pdf-file" type="file" accept=".pdf" required>
+          <button type="submit">上传并创建任务</button>
+        </form>
+        <pre id="upload-result" class="result-box"></pre>
+      </section>
+      <section class="panel">
+        <h2>查看与分享</h2>
+        <p>后续如需查看功能设计、流程状态和最近使用情况，可直接访问 <code>/overview</code>。</p>
+      </section>
+      <section class="panel">
+        <h2>主要接口</h2>
+        <ul class="api-list">
+          <li><code>{{ api_prefix }}/upload</code></li>
+          <li><code>{{ api_prefix }}/parse/{job_id}</code></li>
+          <li><code>{{ api_prefix }}/jobs/{job_id}</code></li>
+          <li><code>{{ api_prefix }}/results/{job_id}</code></li>
+          <li><code>{{ api_prefix }}/review/items/{target_type}/{target_id}</code></li>
+          <li><code>{{ api_prefix }}/export</code></li>
+        </ul>
+      </section>
+    </main>
+    <script>
+      window.APP_CONFIG = { apiPrefix: "{{ api_prefix }}" };
+    </script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

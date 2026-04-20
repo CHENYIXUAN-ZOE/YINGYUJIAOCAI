@@ -1,0 +1,688 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/textbook-structured-content.schema.json",
+  "title": "Textbook Structured Content Export",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "job",
+    "book",
+    "units",
+    "review_records",
+    "export_meta"
+  ],
+  "properties": {
+    "job": {
+      "$ref": "#/$defs/ParseJob"
+    },
+    "book": {
+      "$ref": "#/$defs/Book"
+    },
+    "units": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/UnitPackage"
+      }
+    },
+    "review_records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ReviewRecord"
+      }
+    },
+    "export_meta": {
+      "$ref": "#/$defs/ExportMeta"
+    }
+  },
+  "$defs": {
+    "ParseStatus": {
+      "type": "string",
+      "enum": [
+        "uploaded",
+        "parsing",
+        "structuring",
+        "generating",
+        "reviewing",
+        "completed",
+        "failed"
+      ]
+    },
+    "ReviewStatus": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "revised"
+      ]
+    },
+    "GenerationMode": {
+      "type": "string",
+      "enum": [
+        "extracted",
+        "normalized",
+        "derived",
+        "manual"
+      ]
+    },
+    "ContentTargetType": {
+      "type": "string",
+      "enum": [
+        "book",
+        "unit",
+        "vocabulary_item",
+        "sentence_pattern",
+        "dialogue_sample",
+        "unit_task",
+        "unit_prompt"
+      ]
+    },
+    "PageNumbers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "ConfidenceScore": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "UnitClassification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "textbook_version",
+        "textbook_name",
+        "unit_code",
+        "unit_name"
+      ],
+      "properties": {
+        "textbook_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "textbook_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unit_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unit_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ParseJob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job_id",
+        "file_name",
+        "status",
+        "progress",
+        "created_at",
+        "review_status"
+      ],
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "$ref": "#/$defs/ParseStatus"
+        },
+        "progress": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "error_message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finished_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "review_status": {
+          "$ref": "#/$defs/ReviewStatus"
+        }
+      }
+    },
+    "Book": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "book_id",
+        "textbook_version",
+        "textbook_name",
+        "source_job_id",
+        "review_status"
+      ],
+      "properties": {
+        "book_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "textbook_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "textbook_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "publisher": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "grade": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "term": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_job_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_pages": {
+          "$ref": "#/$defs/PageNumbers"
+        },
+        "confidence": {
+          "$ref": "#/$defs/ConfidenceScore"
+        },
+        "review_status": {
+          "$ref": "#/$defs/ReviewStatus"
+        }
+      }
+    },
+    "Unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit_id",
+        "classification",
+        "source_pages",
+        "review_status"
+      ],
+      "properties": {
+        "unit_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "classification": {
+          "$ref": "#/$defs/UnitClassification"
+        },
+        "unit_theme": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_pages": {
+          "$ref": "#/$defs/PageNumbers"
+        },
+        "confidence": {
+          "$ref": "#/$defs/ConfidenceScore"
+        },
+        "review_status": {
+          "$ref": "#/$defs/ReviewStatus"
+        }
+      }
+    },
+    "VocabularyItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_id",
+        "classification",
+        "word",
+        "source_pages",
+        "generation_mode",
+        "review_status"
+      ],
+      "properties": {
+        "item_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "classification": {
+          "$ref": "#/$defs/UnitClassification"
+        },
+        "word": {
+          "type": "string",
+          "minLength": 1
+        },
+        "part_of_speech": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "meaning_zh": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "example_sentences": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_pages": {
+          "$ref": "#/$defs/PageNumbers"
+        },
+        "source_excerpt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/ConfidenceScore"
+        },
+        "generation_mode": {
+          "$ref": "#/$defs/GenerationMode"
+        },
+        "review_status": {
+          "$ref": "#/$defs/ReviewStatus"
+        }
+      }
+    },
+    "SentencePattern": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_id",
+        "classification",
+        "pattern",
+        "examples",
+        "source_pages",
+        "generation_mode",
+        "review_status"
+      ],
+      "properties": {
+        "item_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "classification": {
+          "$ref": "#/$defs/UnitClassification"
+        },
+        "pattern": {
+          "type": "string",
+          "minLength": 1
+        },
+        "usage_note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "examples": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_pages": {
+          "$ref": "#/$defs/PageNumbers"
+        },
+        "source_excerpt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/ConfidenceScore"
+        },
+        "generation_mode": {
+          "$ref": "#/$defs/GenerationMode"
+        },
+        "review_status": {
+          "$ref": "#/$defs/ReviewStatus"
+        }
+      }
+    },
+    "DialogueTurn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "turn_index",
+        "speaker",
+        "text_en",
+        "text_zh"
+      ],
+      "properties": {
+        "turn_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "speaker": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text_en": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text_zh": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "DialogueSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_id",
+        "classification",
+        "turns",
+        "source_pages",
+        "generation_mode",
+        "review_status"
+      ],
+      "properties": {
+        "item_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "classification": {
+          "$ref": "#/$defs/UnitClassification"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "turns": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 15,
+          "items": {
+            "$ref": "#/$defs/DialogueTurn"
+          }
+        },
+        "source_pages": {
+          "$ref": "#/$defs/PageNumbers"
+        },
+        "source_excerpt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/ConfidenceScore"
+        },
+        "generation_mode": {
+          "$ref": "#/$defs/GenerationMode"
+        },
+        "review_status": {
+          "$ref": "#/$defs/ReviewStatus"
+        }
+      }
+    },
+    "UnitTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_id",
+        "classification",
+        "task_intro",
+        "source_basis",
+        "generation_mode",
+        "review_status"
+      ],
+      "properties": {
+        "item_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "classification": {
+          "$ref": "#/$defs/UnitClassification"
+        },
+        "task_intro": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 40
+        },
+        "source_basis": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "confidence": {
+          "$ref": "#/$defs/ConfidenceScore"
+        },
+        "generation_mode": {
+          "$ref": "#/$defs/GenerationMode"
+        },
+        "review_status": {
+          "$ref": "#/$defs/ReviewStatus"
+        }
+      }
+    },
+    "UnitPrompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_id",
+        "classification",
+        "unit_theme",
+        "grammar_rules",
+        "source_basis",
+        "generation_mode",
+        "review_status"
+      ],
+      "properties": {
+        "item_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "classification": {
+          "$ref": "#/$defs/UnitClassification"
+        },
+        "unit_theme": {
+          "type": "string",
+          "minLength": 1
+        },
+        "grammar_rules": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "prompt_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_basis": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "confidence": {
+          "$ref": "#/$defs/ConfidenceScore"
+        },
+        "generation_mode": {
+          "$ref": "#/$defs/GenerationMode"
+        },
+        "review_status": {
+          "$ref": "#/$defs/ReviewStatus"
+        }
+      }
+    },
+    "ReviewRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "review_id",
+        "target_type",
+        "target_id",
+        "review_status"
+      ],
+      "properties": {
+        "review_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_type": {
+          "$ref": "#/$defs/ContentTargetType"
+        },
+        "target_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "review_status": {
+          "$ref": "#/$defs/ReviewStatus"
+        },
+        "review_notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reviewer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reviewed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "UnitPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit",
+        "vocabulary",
+        "sentence_patterns",
+        "dialogue_samples",
+        "unit_task",
+        "unit_prompt"
+      ],
+      "properties": {
+        "unit": {
+          "$ref": "#/$defs/Unit"
+        },
+        "vocabulary": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/VocabularyItem"
+          }
+        },
+        "sentence_patterns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SentencePattern"
+          }
+        },
+        "dialogue_samples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DialogueSample"
+          }
+        },
+        "unit_task": {
+          "$ref": "#/$defs/UnitTask"
+        },
+        "unit_prompt": {
+          "$ref": "#/$defs/UnitPrompt"
+        }
+      }
+    },
+    "ExportMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "export_scope",
+        "approved_only",
+        "exported_at"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "export_scope": {
+          "type": "string",
+          "enum": [
+            "book",
+            "unit"
+          ]
+        },
+        "approved_only": {
+          "type": "boolean"
+        },
+        "exported_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "exported_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unit_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

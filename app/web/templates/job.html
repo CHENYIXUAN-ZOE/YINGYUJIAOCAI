@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>任务状态</title>
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <main class="page">
+      <section class="panel">
+        <h1>任务状态</h1>
+        <p>任务 ID：<code>{{ job_id }}</code></p>
+        <pre id="job-status" class="result-box"></pre>
+      </section>
+    </main>
+    <script>
+      window.APP_CONFIG = { apiPrefix: "{{ api_prefix }}", jobId: "{{ job_id }}" };
+    </script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

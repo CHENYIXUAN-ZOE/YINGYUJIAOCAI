@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>结构化结果</title>
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <main class="page">
+      <section class="panel">
+        <h1>结构化结果</h1>
+        <p>任务 ID：<code>{{ job_id }}</code></p>
+        <pre id="result-data" class="result-box"></pre>
+      </section>
+    </main>
+    <script>
+      window.APP_CONFIG = { apiPrefix: "{{ api_prefix }}", jobId: "{{ job_id }}" };
+    </script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "口语练习 API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/upload": {
+      "post": {
+        "summary": "Upload a PDF file"
+      }
+    }
+  }
+}

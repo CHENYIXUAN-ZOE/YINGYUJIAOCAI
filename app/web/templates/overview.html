@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>功能总览</title>
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <main class="page dashboard-page">
+      <section class="hero hero-overview">
+        <div>
+          <p class="eyebrow">Feature Design & Usage</p>
+          <h1>功能设计与使用总览</h1>
+          <p class="intro">
+            这个页面集中展示当前系统的功能设计、处理流程、使用统计和最近任务入口，方便直接分享给产品、研发或测试查看。
+          </p>
+          <div class="hero-actions">
+            <a class="button-link" href="/">返回上传页</a>
+            <a class="button-link secondary" href="{{ share_url }}">当前页直达</a>
+          </div>
+        </div>
+        <div class="panel share-panel">
+          <p class="meta-label">分享链接</p>
+          <code class="share-path">{{ share_url }}</code>
+          <p class="meta-text">服务启动后可直接访问这个地址查看功能设计和使用情况。</p>
+          <p class="meta-label">最近生成时间</p>
+          <p class="meta-text">{{ overview.generated_at }}</p>
+        </div>
+      </section>
+
+      <section class="stats-grid">
+        <article class="stat-card">
+          <p class="stat-label">总任务数</p>
+          <p class="stat-value">{{ overview.summary.total_jobs }}</p>
+          <p class="stat-meta">包含已上传、处理中、待审核和失败任务</p>
+        </article>
+        <article class="stat-card">
+          <p class="stat-label">已产出结果</p>
+          <p class="stat-value">{{ overview.summary.jobs_with_results }}</p>
+          <p class="stat-meta">已经生成结构化内容，可进入结果或审核页面</p>
+        </article>
+        <article class="stat-card">
+          <p class="stat-label">处理中任务</p>
+          <p class="stat-value">{{ overview.summary.processing_jobs }}</p>
+          <p class="stat-meta">当前处于解析、结构化或生成阶段</p>
+        </article>
+        <article class="stat-card">
+          <p class="stat-label">导出次数</p>
+          <p class="stat-value">{{ overview.summary.total_exports }}</p>
+          <p class="stat-meta">累计导出 JSON / Markdown 的交付记录</p>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Design Flow</p>
+            <h2>功能设计</h2>
+          </div>
+          <p class="section-note">围绕上传、解析、审核、导出四个阶段组织。</p>
+        </div>
+        <div class="flow-grid">
+          {% for item in overview.design_flow %}
+          <article class="flow-card">
+            <p class="flow-index">0{{ loop.index }}</p>
+            <h3>{{ item.title }}</h3>
+            <p>{{ item.description }}</p>
+            <p class="flow-meta">使用界面：{{ item.surface }}</p>
+            <code>{{ item.endpoint }}</code>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="stack-grid">
+        <article class="panel">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Pipeline Status</p>
+              <h2>阶段状态</h2>
+            </div>
+            <p class="section-note">按任务主流程统计。</p>
+          </div>
+          <div class="chip-list">
+            {% for item in overview.status_counts %}
+            <div class="metric-chip">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.count }}</strong>
+            </div>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Review Status</p>
+              <h2>审核分布</h2>
+            </div>
+            <p class="section-note">按内容项状态聚合，不依赖任务骨架字段。</p>
+          </div>
+          <div class="chip-list">
+            {% for item in overview.review_status_totals %}
+            <div class="metric-chip">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.count }}</strong>
+            </div>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+
+      <section class="stack-grid">
+        <article class="panel">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Content Totals</p>
+              <h2>内容规模</h2>
+            </div>
+            <p class="section-note">统计已经产出的结构化内容体量。</p>
+          </div>
+          <div class="chip-list">
+            <div class="metric-chip"><span>单元</span><strong>{{ overview.content_totals.units }}</strong></div>
+            <div class="metric-chip"><span>词汇</span><strong>{{ overview.content_totals.vocabulary_items }}</strong></div>
+            <div class="metric-chip"><span>句型</span><strong>{{ overview.content_totals.sentence_patterns }}</strong></div>
+            <div class="metric-chip"><span>对话</span><strong>{{ overview.content_totals.dialogue_samples }}</strong></div>
+            <div class="metric-chip"><span>任务</span><strong>{{ overview.content_totals.unit_tasks }}</strong></div>
+            <div class="metric-chip"><span>Prompt</span><strong>{{ overview.content_totals.unit_prompts }}</strong></div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Exports</p>
+              <h2>最近导出</h2>
+            </div>
+            <p class="section-note">保留最近 5 条导出元数据。</p>
+          </div>
+          {% if overview.recent_exports %}
+          <div class="export-list">
+            {% for item in overview.recent_exports %}
+            <article class="export-item">
+              <div>
+                <strong>{{ item.export_id }}</strong>
+                <p class="meta-text">任务 {{ item.job_id }} · {{ item.format }}</p>
+              </div>
+              <code>{{ item.download_url }}</code>
+            </article>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="empty-state">
+            <p>还没有导出记录。</p>
+          </div>
+          {% endif %}
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Recent Jobs</p>
+            <h2>最近任务</h2>
+          </div>
+          <p class="section-note">可直接进入任务状态、结果页和审核页。</p>
+        </div>
+        {% if overview.recent_jobs %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>任务</th>
+                <th>文件</th>
+                <th>流程状态</th>
+                <th>审核状态</th>
+                <th>内容规模</th>
+                <th>入口</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for job in overview.recent_jobs %}
+              <tr>
+                <td>
+                  <strong>{{ job.job_id }}</strong>
+                  <p class="table-meta">{{ job.created_at }}</p>
+                </td>
+                <td>{{ job.file_name }}</td>
+                <td>
+                  <strong>{{ job.status_label }}</strong>
+                  <p class="table-meta">进度 {{ job.progress }}%</p>
+                </td>
+                <td>
+                  <strong>{{ job.review_state_label }}</strong>
+                  <p class="table-meta">通过 {{ job.review_progress_text }}</p>
+                </td>
+                <td>
+                  <p class="table-meta">单元 {{ job.result_counts.units }}</p>
+                  <p class="table-meta">词汇 {{ job.result_counts.vocabulary_items }} / 句型 {{ job.result_counts.sentence_patterns }}</p>
+                </td>
+                <td class="link-cell">
+                  <a href="{{ job.links.job }}">状态</a>
+                  <a href="{{ job.links.result }}">结果</a>
+                  <a href="{{ job.links.review }}">审核</a>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <p>当前还没有任务数据。上传 PDF 并触发解析后，这里会自动展示使用情况。</p>
+        </div>
+        {% endif %}
+      </section>
+    </main>
+  </body>
+</html>
