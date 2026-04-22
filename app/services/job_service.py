@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from concurrent.futures import Executor, Future, ThreadPoolExecutor
+import contextlib
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-import contextlib
+import threading
 from uuid import uuid4
 
 from app.core.config import get_settings
@@ -37,6 +39,7 @@ from app.services.parser import (
 
 PARSE_STATUS_LABELS = {
     ParseStatus.uploaded.value: "已上传",
+    ParseStatus.queued.value: "排队中",
     ParseStatus.parsing.value: "解析中",
     ParseStatus.structuring.value: "结构化中",
     ParseStatus.generating.value: "生成中",
@@ -53,6 +56,30 @@ REVIEW_STATE_LABELS = {
     "approved": "全部通过",
 }
 
+PHASE_LABELS = {
+    "uploaded": "等待开始",
+    "queued": "等待后台任务",
+    "loading_pdf": "加载 PDF",
+    "extracting_text": "读取文字层",
+    "running_ocr": "执行 OCR",
+    "analyzing_layout": "分析页面结构",
+    "detecting_units": "识别单元边界",
+    "classifying_sections": "整理单元板块",
+    "generating_units": "生成单元内容",
+    "saving_results": "保存结果",
+    "review_ready": "结果已生成",
+    "failed": "处理失败",
+}
+
+PROCESSING_STATUSES = {
+    ParseStatus.queued,
+    ParseStatus.parsing,
+    ParseStatus.structuring,
+    ParseStatus.generating,
+}
+
+_UNSET = object()
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -68,6 +95,7 @@ class JobService:
         review_repo: ReviewRepository,
         export_repo: ExportRepository,
         unit_content_generator: UnitContentGenerator | None = None,
+        executor: Executor | None = None,
     ):
         self.upload_dir = upload_dir
         self.export_dir = export_dir
@@ -76,18 +104,25 @@ class JobService:
         self.review_repo = review_repo
         self.export_repo = export_repo
         self.unit_content_generator = unit_content_generator or UnitContentGenerator(get_settings())
+        self._executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="parse-worker")
+        self._active_jobs: dict[str, Future] = {}
+        self._lock = threading.RLock()
 
     def create_job(self, file_name: str, content: bytes) -> ParseJob:
         job_id = f"job_{uuid4().hex[:10]}"
         file_path = self.upload_dir / f"{job_id}_{file_name}"
         file_path.write_bytes(content)
+        created_at = _now_iso()
         job = ParseJob(
             job_id=job_id,
             file_name=file_name,
             file_path=str(file_path),
             status=ParseStatus.uploaded,
             progress=0,
-            created_at=_now_iso(),
+            phase="uploaded",
+            phase_message="任务已创建，等待启动解析。",
+            created_at=created_at,
+            updated_at=created_at,
             review_status=ReviewStatus.pending,
         )
         return self.job_repo.save(job)
@@ -100,11 +135,11 @@ class JobService:
 
     def get_job_status(self, job_id: str) -> JobStatusResponse:
         job = self.get_job(job_id)
-        return JobStatusResponse(**job.model_dump())
+        return self._to_job_status(job)
 
     def delete_job(self, job_id: str) -> dict:
         job = self.get_job(job_id)
-        if job.status in {ParseStatus.parsing, ParseStatus.structuring, ParseStatus.generating}:
+        if job.status in PROCESSING_STATUSES:
             raise AppError("JOB_BUSY", "job is currently processing", status_code=409)
 
         self.result_repo.delete(job_id)
@@ -115,62 +150,209 @@ class JobService:
             Path(job.file_path).unlink()
         return {"job_id": job_id, "deleted": True}
 
+    def queue_parse(self, job_id: str, force_reparse: bool = False) -> ParseJob:
+        job = self._prepare_job_for_parse(job_id, force_reparse=force_reparse, queued=True)
+        with self._lock:
+            future = self._executor.submit(self._run_parse_pipeline, job.job_id)
+            self._active_jobs[job.job_id] = future
+        future.add_done_callback(lambda _future, active_job_id=job.job_id: self._clear_active_job(active_job_id))
+        return job
+
     def start_parse(self, job_id: str, force_reparse: bool = False) -> ParseJob:
+        self._prepare_job_for_parse(job_id, force_reparse=force_reparse, queued=False)
+        return self._run_parse_pipeline(job_id)
+
+    def _prepare_job_for_parse(self, job_id: str, force_reparse: bool, queued: bool) -> ParseJob:
+        with self._lock:
+            active_future = self._active_jobs.get(job_id)
+            if active_future and not active_future.done():
+                raise AppError("INVALID_REQUEST", "job is already processing", status_code=400)
+
         job = self.get_job(job_id)
-        if job.status not in {ParseStatus.uploaded, ParseStatus.failed, ParseStatus.completed} and not force_reparse:
-            raise AppError("INVALID_REQUEST", "job is already processing", status_code=400)
+        initial_statuses = {ParseStatus.uploaded, ParseStatus.failed}
+        reparsable_statuses = initial_statuses | {ParseStatus.reviewing, ParseStatus.completed}
+        allowed_statuses = reparsable_statuses if force_reparse else initial_statuses
+        if job.status not in allowed_statuses:
+            raise AppError("INVALID_REQUEST", "job cannot be started in its current state", status_code=400)
 
-        job.error_message = None
-        job.finished_at = None
+        self.result_repo.delete(job_id)
+        self.review_repo.delete(job_id)
 
+        retry_count = job.retry_count
+        if job.status != ParseStatus.uploaded:
+            retry_count += 1
+
+        return self._set_job_state(
+            job,
+            status=ParseStatus.queued if queued else ParseStatus.parsing,
+            progress=0 if queued else 5,
+            phase="queued" if queued else "loading_pdf",
+            phase_message="任务已进入后台队列，等待处理。" if queued else "正在加载教材 PDF。",
+            page_total=0,
+            page_done=0,
+            unit_total=0,
+            unit_done=0,
+            retry_count=retry_count,
+            error_message=None,
+            last_error_code=None,
+            retryable=False,
+            review_status=ReviewStatus.pending,
+            started_at=None if queued else _now_iso(),
+            finished_at=None,
+        )
+
+    def _run_parse_pipeline(self, job_id: str) -> ParseJob:
+        job = self.get_job(job_id)
         try:
-            job.status = ParseStatus.parsing
-            job.progress = 10
-            self.job_repo.save(job)
+            if job.status == ParseStatus.queued:
+                job = self._set_job_state(
+                    job,
+                    status=ParseStatus.parsing,
+                    progress=5,
+                    phase="loading_pdf",
+                    phase_message="正在加载教材 PDF。",
+                    started_at=_now_iso(),
+                )
 
             def update_ocr_progress(processed_pages: int, total_pages: int) -> None:
                 if total_pages <= 0:
                     return
-                next_progress = min(35, 10 + int(25 * processed_pages / total_pages))
-                if next_progress <= job.progress:
-                    return
-                job.progress = next_progress
-                self.job_repo.save(job)
+                next_progress = min(40, 10 + int(30 * processed_pages / total_pages))
+                self._set_job_state(
+                    job,
+                    status=ParseStatus.parsing,
+                    progress=next_progress,
+                    phase="running_ocr",
+                    phase_message=f"正在处理第 {processed_pages}/{total_pages} 页。",
+                    page_total=total_pages,
+                    page_done=processed_pages,
+                )
 
             document = pdf_loader.load_pdf(Path(job.file_path))
+            initial_page_total = self._estimate_page_total(document)
+            job = self._set_job_state(
+                job,
+                status=ParseStatus.parsing,
+                progress=max(job.progress, 10),
+                phase="extracting_text",
+                phase_message="正在读取文字层并准备 OCR。",
+                page_total=initial_page_total,
+                page_done=0,
+            )
             document = ocr_processor.process(document, progress_callback=update_ocr_progress)
+            page_total = max(initial_page_total, self._estimate_page_total(document))
+            text_message = "已完成 OCR 文本提取。" if document.get("ocr_used") else "已直接使用 PDF 文字层。"
+            job = self._set_job_state(
+                job,
+                status=ParseStatus.parsing,
+                progress=max(job.progress, 40),
+                phase="running_ocr" if document.get("ocr_used") else "extracting_text",
+                phase_message=text_message,
+                page_total=page_total,
+                page_done=page_total,
+            )
+
+            job = self._set_job_state(
+                job,
+                status=ParseStatus.structuring,
+                progress=45,
+                phase="analyzing_layout",
+                phase_message="正在分析页面结构。",
+            )
             document = layout_analyzer.analyze(document)
+
+            job = self._set_job_state(
+                job,
+                status=ParseStatus.structuring,
+                progress=50,
+                phase="detecting_units",
+                phase_message="正在识别单元边界。",
+            )
             units = unit_detector.detect(document)
+
+            job = self._set_job_state(
+                job,
+                status=ParseStatus.structuring,
+                progress=55,
+                phase="classifying_sections",
+                phase_message="正在整理单元板块。",
+                unit_total=len(units),
+                unit_done=0,
+            )
             units = section_classifier.classify(document, units)
 
-            job.status = ParseStatus.structuring
-            job.progress = 45
-            self.job_repo.save(job)
+            def update_generation_progress(processed_units: int, total_units: int) -> None:
+                if total_units <= 0:
+                    return
+                next_progress = min(95, 60 + int(35 * processed_units / total_units))
+                self._set_job_state(
+                    job,
+                    status=ParseStatus.generating,
+                    progress=next_progress,
+                    phase="generating_units",
+                    phase_message=f"正在生成第 {processed_units}/{total_units} 个单元。",
+                    unit_total=total_units,
+                    unit_done=processed_units,
+                )
 
-            job.status = ParseStatus.generating
-            job.progress = 70
-            self.job_repo.save(job)
+            job = self._set_job_state(
+                job,
+                status=ParseStatus.generating,
+                progress=60,
+                phase="generating_units",
+                phase_message=f"正在生成 {len(units)} 个单元的结构化内容。",
+                unit_total=len(units),
+                unit_done=0,
+            )
 
-            result = self._build_result(job, document, units)
+            result = self._build_result(job, document, units, generation_progress_callback=update_generation_progress)
+            job = self._set_job_state(
+                job,
+                status=ParseStatus.generating,
+                progress=98,
+                phase="saving_results",
+                phase_message="正在保存结果与审核记录。",
+                unit_total=len(units),
+                unit_done=len(units),
+            )
             self.result_repo.save(job_id, result)
             self.review_repo.save(job_id, result["review_records"])
 
-            job.status = ParseStatus.reviewing
-            job.progress = 100
-            job.finished_at = _now_iso()
-            self.job_repo.save(job)
+            job = self._set_job_state(
+                job,
+                status=ParseStatus.reviewing,
+                progress=100,
+                phase="review_ready",
+                phase_message="结果已生成，可以进入审核。",
+                finished_at=_now_iso(),
+            )
 
             result["job"] = job.model_dump(mode="json")
             self.result_repo.save(job_id, result)
             return job
         except Exception as exc:
-            job.status = ParseStatus.failed
-            job.error_message = str(exc)
-            job.finished_at = _now_iso()
-            self.job_repo.save(job)
+            error_code = exc.code if isinstance(exc, AppError) else "UNEXPECTED_ERROR"
+            error_message = exc.message if isinstance(exc, AppError) else str(exc)
+            retryable = not isinstance(exc, AppError) or exc.status_code >= 500
+            self._set_job_state(
+                job,
+                status=ParseStatus.failed,
+                phase="failed",
+                phase_message="处理失败，请查看错误信息后重试。",
+                error_message=error_message,
+                last_error_code=error_code,
+                retryable=retryable,
+                finished_at=_now_iso(),
+            )
             raise
 
-    def _build_result(self, job: ParseJob, document: dict, units: list[dict]) -> dict:
+    def _build_result(
+        self,
+        job: ParseJob,
+        document: dict,
+        units: list[dict],
+        generation_progress_callback=None,
+    ) -> dict:
         textbook_version = self._infer_textbook_version(job.file_name)
         textbook_name = Path(job.file_name).stem
         book = Book(
@@ -201,6 +383,8 @@ class JobService:
                 review_status=ReviewStatus.pending,
             )
             unit_packages.append(self.unit_content_generator.build_unit_package(unit_record, raw_unit))
+            if generation_progress_callback:
+                generation_progress_callback(index, len(units))
         payload = StructuredContent(
             job=job.model_dump(mode="json"),
             book=book,
@@ -215,6 +399,80 @@ class JobService:
         )
         return payload.model_dump(mode="json")
 
+    def _estimate_page_total(self, document: dict) -> int:
+        page_texts = document.get("page_texts") or []
+        if page_texts:
+            return len(page_texts)
+        page_lines = document.get("page_lines") or []
+        if page_lines:
+            return max(int(item.get("page_num", 1)) for item in page_lines)
+        return 0
+
+    def _set_job_state(
+        self,
+        job: ParseJob,
+        *,
+        status=_UNSET,
+        progress=_UNSET,
+        phase=_UNSET,
+        phase_message=_UNSET,
+        page_total=_UNSET,
+        page_done=_UNSET,
+        unit_total=_UNSET,
+        unit_done=_UNSET,
+        retry_count=_UNSET,
+        error_message=_UNSET,
+        last_error_code=_UNSET,
+        retryable=_UNSET,
+        review_status=_UNSET,
+        started_at=_UNSET,
+        finished_at=_UNSET,
+    ) -> ParseJob:
+        if status is not _UNSET:
+            job.status = status
+        if progress is not _UNSET:
+            job.progress = max(0, min(100, int(progress)))
+        if phase is not _UNSET:
+            job.phase = str(phase)
+        if phase_message is not _UNSET:
+            job.phase_message = phase_message
+        if page_total is not _UNSET:
+            job.page_total = max(0, int(page_total))
+        if page_done is not _UNSET:
+            job.page_done = max(0, int(page_done))
+        if unit_total is not _UNSET:
+            job.unit_total = max(0, int(unit_total))
+        if unit_done is not _UNSET:
+            job.unit_done = max(0, int(unit_done))
+        if retry_count is not _UNSET:
+            job.retry_count = max(0, int(retry_count))
+        if error_message is not _UNSET:
+            job.error_message = error_message
+        if last_error_code is not _UNSET:
+            job.last_error_code = last_error_code
+        if retryable is not _UNSET:
+            job.retryable = bool(retryable)
+        if review_status is not _UNSET:
+            job.review_status = review_status
+        if started_at is not _UNSET:
+            job.started_at = started_at
+        if finished_at is not _UNSET:
+            job.finished_at = finished_at
+        job.updated_at = _now_iso()
+        self.job_repo.save(job)
+        return job
+
+    def _to_job_status(self, job: ParseJob) -> JobStatusResponse:
+        return JobStatusResponse(
+            **job.model_dump(),
+            status_label=PARSE_STATUS_LABELS[job.status.value],
+            phase_label=PHASE_LABELS.get(job.phase, job.phase),
+        )
+
+    def _clear_active_job(self, job_id: str) -> None:
+        with self._lock:
+            self._active_jobs.pop(job_id, None)
+
     def _infer_textbook_version(self, file_name: str) -> str:
         if "人教" in file_name:
             return "人教版"
@@ -223,7 +481,9 @@ class JobService:
         return "待确认版本"
 
     def get_result(self, job_id: str, approved_only: bool = False, include_review_records: bool = True) -> dict:
-        self.get_job(job_id)
+        job = self.get_job(job_id)
+        if job.status not in {ParseStatus.reviewing, ParseStatus.completed}:
+            raise AppError("PARSE_NOT_READY", "result is not ready", status_code=409)
         payload = self.result_repo.get(job_id)
         if not payload:
             raise AppError("PARSE_NOT_READY", "result is not ready", status_code=409)
@@ -282,10 +542,22 @@ class JobService:
                     "job_id": job.job_id,
                     "file_name": job.file_name,
                     "created_at": job.created_at,
+                    "started_at": job.started_at,
                     "finished_at": job.finished_at,
+                    "updated_at": job.updated_at,
                     "status": job.status.value,
                     "status_label": PARSE_STATUS_LABELS[job.status.value],
                     "progress": job.progress,
+                    "phase": job.phase,
+                    "phase_label": PHASE_LABELS.get(job.phase, job.phase),
+                    "phase_message": job.phase_message,
+                    "page_total": job.page_total,
+                    "page_done": job.page_done,
+                    "unit_total": job.unit_total,
+                    "unit_done": job.unit_done,
+                    "retry_count": job.retry_count,
+                    "last_error_code": job.last_error_code,
+                    "retryable": job.retryable,
                     "has_result": bool(result),
                     "review_state": review_state,
                     "review_state_label": REVIEW_STATE_LABELS[review_state],
@@ -304,6 +576,7 @@ class JobService:
         processing_jobs = sum(
             status_counts[key]
             for key in [
+                ParseStatus.queued.value,
                 ParseStatus.parsing.value,
                 ParseStatus.structuring.value,
                 ParseStatus.generating.value,

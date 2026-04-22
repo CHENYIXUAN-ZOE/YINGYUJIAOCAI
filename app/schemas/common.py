@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 class ParseStatus(str, Enum):
     uploaded = "uploaded"
+    queued = "queued"
     parsing = "parsing"
     structuring = "structuring"
     generating = "generating"
