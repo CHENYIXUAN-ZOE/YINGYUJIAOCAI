@@ -2,6 +2,7 @@ const APP_CONFIG = window.APP_CONFIG || {};
 
 const STATUS_LABELS = {
   uploaded: "已上传",
+  queued: "排队中",
   parsing: "解析中",
   structuring: "结构化中",
   generating: "生成中",
@@ -17,7 +18,7 @@ const REVIEW_LABELS = {
   revised: "已返修",
 };
 
-const PROCESSING_STATUSES = new Set(["parsing", "structuring", "generating"]);
+const PROCESSING_STATUSES = new Set(["queued", "parsing", "structuring", "generating"]);
 
 let reviewPayloadCache = null;
 let jobPollTimer = null;
@@ -92,6 +93,20 @@ function buildJobLinks(jobId) {
 }
 
 function renderJobSnapshot(job, detail) {
+  const progressDetails = [];
+  if (job.phase_label || job.phase) {
+    progressDetails.push(`阶段 ${job.phase_label || job.phase}`);
+  }
+  if (Number.isFinite(job.page_total) && job.page_total > 0) {
+    progressDetails.push(`页数 ${job.page_done || 0}/${job.page_total}`);
+  }
+  if (Number.isFinite(job.unit_total) && job.unit_total > 0) {
+    progressDetails.push(`单元 ${job.unit_done || 0}/${job.unit_total}`);
+  }
+  if (Number.isFinite(job.retry_count) && job.retry_count > 0) {
+    progressDetails.push(`重试 ${job.retry_count} 次`);
+  }
+
   return `
     <div class="info-grid">
       <article class="info-card">
@@ -102,15 +117,17 @@ function renderJobSnapshot(job, detail) {
       <article class="info-card">
         <span class="meta-label">文件</span>
         <strong>${escapeHtml(job.file_name)}</strong>
-        <p class="meta-text">进度 ${escapeHtml(job.progress)}%</p>
+        <p class="meta-text">进度 ${escapeHtml(job.progress)}%${progressDetails.length ? ` · ${escapeHtml(progressDetails.join(" · "))}` : ""}</p>
       </article>
       <article class="info-card">
         <span class="meta-label">创建时间</span>
         <strong>${escapeHtml(formatDateTime(job.created_at))}</strong>
-        <p class="meta-text">完成时间 ${escapeHtml(formatDateTime(job.finished_at))}</p>
+        <p class="meta-text">更新时间 ${escapeHtml(formatDateTime(job.updated_at || job.finished_at))}</p>
       </article>
     </div>
     ${detail ? `<p class="meta-text">${escapeHtml(detail)}</p>` : ""}
+    ${job.phase_message ? `<p class="meta-text">${escapeHtml(job.phase_message)}</p>` : ""}
+    ${job.last_error_code ? `<p class="meta-text">错误码：${escapeHtml(job.last_error_code)}</p>` : ""}
     ${job.error_message ? `<div class="inline-error">${escapeHtml(job.error_message)}</div>` : ""}
   `;
 }
@@ -870,12 +887,12 @@ async function initIndexPage() {
       setHtml("upload-summary", renderJobSnapshot(job, "任务已创建，正在进入解析与生成阶段。"));
       setHtml("upload-links", buildJobLinks(job.job_id));
 
-      const parsedJob = await postJson(`${APP_CONFIG.apiPrefix}/parse/${encodeURIComponent(job.job_id)}`, {
+      const queuedJob = await postJson(`${APP_CONFIG.apiPrefix}/parse/${encodeURIComponent(job.job_id)}`, {
         force_reparse: false,
       });
-      setText("upload-stage", "解析完成，可以进入结果页或审核页。");
-      setHtml("upload-summary", renderJobSnapshot(parsedJob, "结构化内容已经生成，建议先看结果页，再进入审核页处理状态。"));
-      setHtml("upload-links", buildJobLinks(parsedJob.job_id));
+      setText("upload-stage", "任务已提交，正在后台处理中...");
+      setHtml("upload-summary", renderJobSnapshot(queuedJob, "后台任务已经启动，请打开状态页查看实时进度。"));
+      setHtml("upload-links", buildJobLinks(queuedJob.job_id));
     } catch (error) {
       setText("upload-stage", "处理失败");
       const limitMb = error.details?.limit_mb;
@@ -895,7 +912,7 @@ async function initIndexPage() {
 async function loadJobStatus() {
   const job = await requestJson(`${APP_CONFIG.apiPrefix}/jobs/${encodeURIComponent(APP_CONFIG.jobId)}`);
   const isProcessing = PROCESSING_STATUSES.has(job.status);
-  const canTriggerParse = ["uploaded", "failed", "completed"].includes(job.status);
+  const canTriggerParse = ["uploaded", "failed", "reviewing", "completed"].includes(job.status);
   setHtml(
     "job-status",
     `
@@ -904,7 +921,7 @@ async function loadJobStatus() {
         ${buildJobLinks(job.job_id)}
         ${
           canTriggerParse
-            ? `<button type="button" id="parse-trigger" ${job.status === "completed" ? 'data-force="true"' : ""}>${job.status === "completed" ? "重新解析" : "开始解析"}</button>`
+            ? `<button type="button" id="parse-trigger" ${["reviewing", "completed"].includes(job.status) ? 'data-force="true"' : ""}>${["reviewing", "completed"].includes(job.status) ? "重新解析" : "开始解析"}</button>`
             : ""
         }
       </div>
@@ -917,7 +934,9 @@ async function loadJobStatus() {
       ? `<div class="status-banner">任务仍在处理中，页面会自动刷新。</div>`
       : job.status === "reviewing"
         ? `<div class="status-banner">结果已经准备好，可以直接打开结果页或审核页。</div>`
-        : "",
+        : job.error_message
+          ? `<div class="inline-error">${escapeHtml(job.error_message)}</div>`
+          : "",
   );
 
   const parseTrigger = document.getElementById("parse-trigger");
