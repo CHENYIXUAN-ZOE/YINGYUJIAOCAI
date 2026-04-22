@@ -489,13 +489,23 @@ function bindPracticeEvents() {
     practiceState.selectedJobId = event.target.value;
     practiceState.selectedUnitId = "";
     setPracticeFeedback("");
-    await loadPracticeUnits(practiceState.selectedJobId);
+    try {
+      await loadPracticeUnits(practiceState.selectedJobId);
+    } catch (error) {
+      setPracticeFeedback(error.message, "error");
+      renderPracticePage();
+    }
   });
 
   document.getElementById("practice-unit-select")?.addEventListener("change", async (event) => {
     practiceState.selectedUnitId = event.target.value;
     setPracticeFeedback("");
-    await loadPracticeContext(practiceState.selectedJobId, practiceState.selectedUnitId);
+    try {
+      await loadPracticeContext(practiceState.selectedJobId, practiceState.selectedUnitId);
+    } catch (error) {
+      setPracticeFeedback(error.message, "error");
+      renderPracticePage();
+    }
   });
 
   document.getElementById("practice-prompt-template")?.addEventListener("input", (event) => {

@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_job_service
+from app.api.deps import get_job_service, get_practice_service
 from app.core.config import Settings
 from app.main import app
 from app.repositories.export_repo import ExportRepository
@@ -57,6 +57,12 @@ def test_overview_page():
     assert "任务总览与内容产出统计" in response.text
 
 
+def test_practice_page():
+    response = client.get("/practice")
+    assert response.status_code == 200
+    assert "口语对练测试" in response.text
+
+
 def test_overview_api():
     response = client.get("/api/v1/overview")
     assert response.status_code == 200
@@ -96,3 +102,74 @@ def test_upload_returns_file_size_details(monkeypatch):
     payload = response.json()
     assert payload["error"]["code"] == "FILE_TOO_LARGE"
     assert payload["error"]["details"]["limit_mb"] == 1
+
+
+class StubPracticeService:
+    def get_context(self, job_id: str, unit_id: str) -> dict:
+        return {
+            "job": {"job_id": job_id, "file_name": "sample.pdf", "status": "reviewing"},
+            "unit": {
+                "unit_id": unit_id,
+                "unit_code": "Unit 1",
+                "unit_name": "My Weekend Plan",
+                "unit_theme": "Talk about weekend plans",
+                "unit_task": "谈论周末计划",
+            },
+            "grade_band": "3-4",
+            "summary": {
+                "vocabulary": ["park", "library"],
+                "sentence_patterns": ["What will you do on ...?", "I will ..."],
+            },
+            "prompt": {
+                "template_version": "v1",
+                "default_template": "template",
+                "final_instruction": "Now begin.",
+                "final_prompt_preview": "template\n\nCurrent unit context:\n...",
+            },
+            "provider": {"name": "doubao", "configured": True, "endpoint_id_masked": "ep-****"},
+        }
+
+    def chat(self, request) -> dict:
+        return {
+            "assistant_message": {"role": "assistant", "content": "Hi! What will you do this Saturday?"},
+            "round_count": 0 if request.is_opening_turn else 1,
+            "status_hint": "",
+            "meta": {"request_id": "req_demo", "provider": "doubao", "endpoint_id_masked": "ep-****", "latency_ms": 10},
+        }
+
+
+def test_practice_context_api():
+    app.dependency_overrides[get_practice_service] = lambda: StubPracticeService()
+    try:
+        response = client.get("/api/v1/practice/context", params={"job_id": "job_demo", "unit_id": "job_demo_unit_1"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["grade_band"] == "3-4"
+    assert payload["provider"]["configured"] is True
+
+
+def test_practice_chat_api():
+    app.dependency_overrides[get_practice_service] = lambda: StubPracticeService()
+    try:
+        response = client.post(
+            "/api/v1/practice/chat",
+            json={
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "grade_band": "3-4",
+                "prompt_template": "template",
+                "final_prompt": "final",
+                "messages": [],
+                "student_message": "",
+                "is_opening_turn": True,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["assistant_message"]["role"] == "assistant"

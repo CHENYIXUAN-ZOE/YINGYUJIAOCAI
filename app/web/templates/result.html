@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>结构化内容结果</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260421e">
+    <link rel="stylesheet" href="/static/app.css?v=20260422a">
   </head>
   <body>
     <main class="page dashboard-page">
@@ -17,6 +17,7 @@
             <a class="button-link" href="/">返回上传页</a>
             <a class="button-link secondary" href="/overview">任务总览</a>
             <a class="button-link secondary" href="/review/{{ job_id }}">进入审核页</a>
+            <a class="button-link secondary" href="/practice?job_id={{ job_id }}">进入口语对练测试</a>
           </div>
         </div>
         <div class="panel share-panel">
@@ -50,6 +51,6 @@
     <script>
       window.APP_CONFIG = { page: "result", apiPrefix: "{{ api_prefix }}", jobId: "{{ job_id }}" };
     </script>
-    <script src="/static/app.js?v=20260421e"></script>
+    <script src="/static/app.js?v=20260422a"></script>
   </body>
 </html>

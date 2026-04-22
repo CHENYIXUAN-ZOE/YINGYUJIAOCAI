@@ -742,6 +742,189 @@ textarea {
   margin-top: 14px;
 }
 
+.practice-page {
+  max-width: 1480px;
+}
+
+.practice-header {
+  align-items: start;
+}
+
+.practice-nav .nav-button {
+  text-decoration: none;
+}
+
+.practice-shell {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.35fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.practice-column {
+  min-width: 0;
+}
+
+.practice-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.practice-grade-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.practice-grade-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #f4e7d5;
+  border: 1px solid #e2c8ad;
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.practice-section + .practice-section {
+  margin-top: 18px;
+}
+
+.practice-summary-shell {
+  display: grid;
+  gap: 12px;
+}
+
+.practice-summary-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: #fcf8f1;
+}
+
+.practice-summary-block strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 16px;
+}
+
+.practice-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.practice-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fffdf9;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.practice-textarea {
+  min-height: 240px;
+  resize: vertical;
+}
+
+.practice-preview {
+  min-height: 220px;
+  background: #f7f2e7;
+}
+
+.practice-chat-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.practice-session-meta {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.practice-chat-shell {
+  min-height: 520px;
+  max-height: 720px;
+  overflow: auto;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at top left, rgba(191, 91, 44, 0.06), transparent 32%),
+    #fffcf6;
+}
+
+.practice-message-list {
+  display: grid;
+  gap: 14px;
+}
+
+.practice-bubble {
+  max-width: 88%;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: #fffdf9;
+  box-shadow: 0 6px 16px rgba(70, 56, 31, 0.05);
+}
+
+.practice-bubble p {
+  margin: 6px 0 0;
+  line-height: 1.7;
+}
+
+.practice-bubble-assistant {
+  justify-self: start;
+  background: #fff8f2;
+  border-color: #e7d3bf;
+}
+
+.practice-bubble-user {
+  justify-self: end;
+  background: #f3f6ef;
+  border-color: #cdddc7;
+}
+
+.practice-bubble-role {
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.practice-status-hint {
+  min-height: 24px;
+  margin: 0;
+  color: #8d5a14;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.practice-status-hint.is-visible {
+  opacity: 1;
+}
+
+.practice-composer {
+  display: grid;
+  gap: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
 @media (max-width: 960px) {
   .workspace-page {
     grid-template-columns: 1fr;
@@ -761,6 +944,11 @@ textarea {
 
   .flow-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .practice-shell,
+  .practice-form-grid {
+    grid-template-columns: 1fr;
   }
 
   .info-grid,

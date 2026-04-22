@@ -445,6 +445,7 @@ function updateSidebarCurrentJob(job) {
   const jobLabel = document.getElementById("workspace-current-job");
   const fileLabel = document.getElementById("workspace-current-file");
   const shareLink = document.getElementById("workspace-share-link");
+  const practiceLink = document.getElementById("workspace-practice-link");
   const input = document.getElementById("job-id-input");
 
   if (input) {
@@ -460,6 +461,9 @@ function updateSidebarCurrentJob(job) {
     fileLabel.textContent = "可从最近任务直接载入，或先上传新的教材 PDF。";
     shareLink.href = "/";
     shareLink.textContent = "/?job_id=...";
+    if (practiceLink) {
+      practiceLink.href = "/practice";
+    }
     return;
   }
 
@@ -468,6 +472,9 @@ function updateSidebarCurrentJob(job) {
   fileLabel.textContent = currentFile;
   shareLink.href = buildWorkspaceUrl(workspaceState.currentJobId, workspaceState.activeView);
   shareLink.textContent = shareLink.getAttribute("href");
+  if (practiceLink) {
+    practiceLink.href = `/practice?job_id=${encodeURIComponent(workspaceState.currentJobId)}`;
+  }
 }
 
 function clearCurrentWorkspaceJobState(targetView = "overview") {

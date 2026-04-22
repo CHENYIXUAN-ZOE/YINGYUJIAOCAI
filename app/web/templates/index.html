@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>教材内容产出工具</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260421e">
+    <link rel="stylesheet" href="/static/app.css?v=20260422a">
   </head>
   <body>
     <main class="workspace-page">
@@ -29,6 +29,7 @@
           <p id="workspace-current-file" class="meta-text">可从最近任务直接载入，或先上传新的教材 PDF。</p>
           <a id="workspace-share-link" class="share-path share-path-compact" href="/">/?job_id=...</a>
           <div class="action-row">
+            <a id="workspace-practice-link" class="button-link secondary" href="/practice">口语对练测试</a>
             <button type="button" class="danger small" id="delete-current-job-button">删除当前任务</button>
           </div>
         </section>
@@ -257,7 +258,7 @@
         initialView: "{{ initial_view }}"
       };
     </script>
-    <script src="/static/app.js?v=20260421e"></script>
-    <script src="/static/workspace.js?v=20260421e"></script>
+    <script src="/static/app.js?v=20260422a"></script>
+    <script src="/static/workspace.js?v=20260422a"></script>
   </body>
 </html>
