@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.config import Settings
+from app.clients.doubao.practice_chat_client import DoubaoPracticeChatResponse
 from app.core.errors import AppError
 from app.schemas.job import ParseJob
 from app.schemas.common import ParseStatus, ReviewStatus
@@ -56,28 +56,32 @@ class StubJobService:
         return self.payload
 
 
-def build_settings(tmp_path) -> Settings:
-    settings = Settings(
-        base_dir=tmp_path,
-        data_dir=tmp_path / "data",
-        upload_dir=tmp_path / "data" / "uploads",
-        parsed_dir=tmp_path / "data" / "parsed",
-        export_dir=tmp_path / "data" / "exports",
-        job_dir=tmp_path / "data" / "parsed" / "jobs",
-        result_dir=tmp_path / "data" / "parsed" / "results",
-        review_dir=tmp_path / "data" / "parsed" / "reviews",
-        web_dir=tmp_path / "app" / "web",
-        template_dir=tmp_path / "app" / "web" / "templates",
-        static_dir=tmp_path / "app" / "web" / "static",
-        doubao_api_key=None,
-        doubao_endpoint_id=None,
-    )
-    settings.ensure_directories()
-    return settings
+class StubPracticeClient:
+    provider_name = "doubao"
+
+    def __init__(self, configured: bool = True, response: DoubaoPracticeChatResponse | None = None):
+        self.configured = configured
+        self.response = response or DoubaoPracticeChatResponse(
+            assistant_message="Hi! What will you do this Saturday?",
+            request_id="req_demo",
+            latency_ms=12,
+            usage={"prompt_tokens": 10, "completion_tokens": 9},
+        )
+        self.messages: list[dict[str, str]] = []
+
+    def is_configured(self) -> bool:
+        return self.configured
+
+    def endpoint_id_masked(self) -> str:
+        return "ep-****" if self.configured else ""
+
+    def create_chat_completion(self, messages: list[dict[str, str]]) -> DoubaoPracticeChatResponse:
+        self.messages = messages
+        return self.response
 
 
 def test_get_context_builds_prompt_preview(tmp_path):
-    service = PracticeService(build_settings(tmp_path), StubJobService())
+    service = PracticeService(StubJobService(), StubPracticeClient(configured=False))
 
     payload = service.get_context("job_demo", "job_demo_unit_1")
 
@@ -88,7 +92,7 @@ def test_get_context_builds_prompt_preview(tmp_path):
 
 
 def test_chat_requires_provider_configuration(tmp_path):
-    service = PracticeService(build_settings(tmp_path), StubJobService())
+    service = PracticeService(StubJobService(), StubPracticeClient(configured=False))
 
     with pytest.raises(AppError) as exc_info:
         service.chat(
@@ -109,3 +113,30 @@ def test_chat_requires_provider_configuration(tmp_path):
         )
 
     assert exc_info.value.code == "PRACTICE_PROVIDER_NOT_CONFIGURED"
+
+
+def test_chat_uses_doubao_client_response(tmp_path):
+    client = StubPracticeClient(configured=True)
+    service = PracticeService(StubJobService(), client)
+
+    payload = service.chat(
+        type(
+            "Req",
+            (),
+            {
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "grade_band": "3-4",
+                "prompt_template": "template",
+                "final_prompt": "final prompt",
+                "messages": [],
+                "student_message": "",
+                "is_opening_turn": True,
+            },
+        )()
+    )
+
+    assert payload["assistant_message"]["content"] == "Hi! What will you do this Saturday?"
+    assert payload["meta"]["request_id"] == "req_demo"
+    assert payload["meta"]["provider"] == "doubao"
+    assert client.messages[0] == {"role": "system", "content": "final prompt"}
