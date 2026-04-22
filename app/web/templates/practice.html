@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>口语对练测试</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260422a">
+  </head>
+  <body>
+    <main class="workspace-page practice-page">
+      <aside class="workspace-sidebar">
+        <section class="sidebar-panel brand-panel">
+          <p class="eyebrow">Prompt Test Console</p>
+          <h1>口语对练测试</h1>
+          <p class="meta-text">基于已有教材结构化内容，验证通用 Prompt 在不同项目、不同单元下的对练效果。</p>
+        </section>
+
+        <nav class="workspace-nav practice-nav">
+          <a class="nav-button" href="/">返回 Workspace</a>
+          <a class="nav-button" id="practice-result-link" href="/overview">项目结果</a>
+          <a class="nav-button" id="practice-review-link" href="/overview">审核页</a>
+          <span class="nav-button is-active">口语对练测试</span>
+        </nav>
+
+        <section class="sidebar-panel">
+          <span class="meta-label">当前项目</span>
+          <strong id="practice-current-job">未选择项目</strong>
+          <p id="practice-current-unit" class="meta-text">请选择一个已完成内容生成的项目和单元。</p>
+          <p id="practice-provider-status" class="meta-text">正在检查豆包配置...</p>
+        </section>
+      </aside>
+
+      <section class="workspace-main">
+        <header class="panel workspace-header practice-header">
+          <div>
+            <p class="eyebrow">Workspace / 项目结果 / 口语对练测试</p>
+            <h2>口语对练测试</h2>
+            <p class="section-note">左侧查看摘要并调 Prompt，右侧模拟真实对练流程。AI 先开场，学生手动回复，对话记录仅保存在前端。</p>
+          </div>
+          <div class="practice-header-actions action-row">
+            <a class="button-link secondary" id="practice-open-result" href="/overview">查看项目结果</a>
+            <a class="button-link secondary" id="practice-open-review" href="/overview">查看审核页</a>
+          </div>
+        </header>
+
+        <div id="practice-feedback"></div>
+
+        <section class="practice-shell">
+          <div class="practice-column">
+            <section class="panel">
+              <div class="section-head">
+                <div>
+                  <p class="eyebrow">Test Config</p>
+                  <h3>测试配置</h3>
+                </div>
+              </div>
+
+              <div class="practice-form-grid">
+                <label class="field">
+                  <span class="field-label">项目选择</span>
+                  <select id="practice-job-select">
+                    <option value="">请选择项目</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field-label">单元选择</span>
+                  <select id="practice-unit-select" disabled>
+                    <option value="">请先选择项目</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="practice-grade-row">
+                <span class="field-label">自动识别</span>
+                <span id="practice-grade-badge" class="practice-grade-badge">未识别</span>
+              </div>
+
+              <div class="practice-section">
+                <div class="section-head section-head-compact">
+                  <div>
+                    <p class="eyebrow">Summary</p>
+                    <h3>核心摘要</h3>
+                  </div>
+                </div>
+                <div id="practice-summary-shell" class="practice-summary-shell">
+                  <div class="empty-state compact-empty">选择单元后，这里会显示单元主题、任务、重点词汇和重点句型。</div>
+                </div>
+              </div>
+
+              <label class="field practice-section">
+                <span class="field-label">通用 Prompt 模板</span>
+                <textarea id="practice-prompt-template" class="practice-textarea" rows="18" placeholder="选择单元后载入默认 Prompt 模板"></textarea>
+              </label>
+
+              <label class="field practice-section">
+                <span class="field-label">完整 Prompt 预览（系统拼装后）</span>
+                <textarea id="practice-final-prompt" class="practice-textarea practice-preview" rows="16" readonly></textarea>
+              </label>
+
+              <div class="action-row">
+                <button type="button" id="practice-start-button">开始测试</button>
+                <button type="button" class="secondary" id="practice-reset-chat-button">重新开始</button>
+                <button type="button" class="secondary" id="practice-restore-prompt-button">恢复默认 Prompt</button>
+              </div>
+              <p class="meta-text">对话记录仅保存在前端。</p>
+            </section>
+          </div>
+
+          <div class="practice-column">
+            <section class="panel practice-chat-panel">
+              <div class="section-head">
+                <div>
+                  <p class="eyebrow">Practice Playground</p>
+                  <h3>模拟对话</h3>
+                </div>
+                <div class="practice-session-meta">
+                  <span id="practice-session-status" class="status-pill review-pending">未开始</span>
+                  <span id="practice-round-label" class="meta-text">当前轮次 0 / 目标 7-8轮</span>
+                </div>
+              </div>
+
+              <div id="practice-chat-shell" class="practice-chat-shell">
+                <div class="empty-state">请选择单元并点击“开始测试”，由 AI 先开场。</div>
+              </div>
+
+              <p id="practice-status-hint" class="practice-status-hint"></p>
+
+              <div class="practice-composer">
+                <label class="field field-wide">
+                  <span class="field-label">学生回复</span>
+                  <textarea id="practice-student-input" rows="4" placeholder="输入学生回复…"></textarea>
+                </label>
+                <div class="action-row">
+                  <button type="button" class="secondary" id="practice-clear-input-button">清空输入</button>
+                  <button type="button" id="practice-send-button">发送</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+    <script>
+      window.APP_CONFIG = {
+        page: "practice",
+        apiPrefix: "{{ api_prefix }}",
+        initialJobId: "{{ initial_job_id }}",
+        initialUnitId: "{{ initial_unit_id }}"
+      };
+    </script>
+    <script src="/static/app.js?v=20260422a"></script>
+    <script src="/static/practice.js?v=20260422a"></script>
+  </body>
+</html>

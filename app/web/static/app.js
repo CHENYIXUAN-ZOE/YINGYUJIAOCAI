@@ -87,6 +87,7 @@ function buildJobLinks(jobId) {
     <a class="button-link secondary" href="/jobs/${safeJobId}">状态页</a>
     <a class="button-link secondary" href="/results/${safeJobId}">结果页</a>
     <a class="button-link secondary" href="/review/${safeJobId}">审核页</a>
+    <a class="button-link secondary" href="/practice?job_id=${safeJobId}">口语对练测试</a>
   `;
 }
 

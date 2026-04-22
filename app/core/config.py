@@ -29,6 +29,10 @@ class Settings(BaseModel):
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     gemini_ocr_model: str = os.getenv("GEMINI_OCR_MODEL") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     gemini_max_retries: int = int(os.getenv("GEMINI_MAX_RETRIES", "3"))
+    doubao_api_key: str | None = os.getenv("DOUBAO_API_KEY")
+    doubao_endpoint_id: str | None = os.getenv("DOUBAO_ENDPOINT_ID")
+    doubao_base_url: str = os.getenv("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
+    doubao_timeout_sec: int = int(os.getenv("DOUBAO_TIMEOUT_SEC", "60"))
     ocr_page_batch_size: int = int(os.getenv("OCR_PAGE_BATCH_SIZE", "4"))
     ocr_render_dpi: int = int(os.getenv("OCR_RENDER_DPI", "160"))
     allow_placeholder_fallback: bool = os.getenv("ALLOW_PLACEHOLDER_FALLBACK", "false").lower() in {

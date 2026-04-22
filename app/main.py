@@ -10,6 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes.export import router as export_router
 from app.api.routes.jobs import router as jobs_router
+from app.api.routes.practice import router as practice_router
 from app.api.routes.results import router as results_router
 from app.api.routes.review import router as review_router
 from app.api.routes.upload import router as upload_router
@@ -28,6 +29,7 @@ app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="stat
 app.include_router(upload_router, prefix=settings.api_prefix)
 app.include_router(jobs_router, prefix=settings.api_prefix)
 app.include_router(results_router, prefix=settings.api_prefix)
+app.include_router(practice_router, prefix=settings.api_prefix)
 app.include_router(review_router, prefix=settings.api_prefix)
 app.include_router(export_router, prefix=settings.api_prefix)
 
@@ -112,4 +114,18 @@ async def review_page(request: Request, job_id: str):
         request,
         "review.html",
         {"request": request, "job_id": job_id, "api_prefix": settings.api_prefix},
+    )
+
+
+@app.get("/practice", response_class=HTMLResponse)
+async def practice_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "practice.html",
+        {
+            "request": request,
+            "api_prefix": settings.api_prefix,
+            "initial_job_id": request.query_params.get("job_id", ""),
+            "initial_unit_id": request.query_params.get("unit_id", ""),
+        },
     )

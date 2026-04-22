@@ -6,6 +6,7 @@ from app.repositories.job_repo import JobRepository
 from app.repositories.result_repo import ResultRepository
 from app.repositories.review_repo import ReviewRepository
 from app.services.job_service import JobService
+from app.services.practice_service import PracticeService
 from app.services.reviewer.review_service import ReviewService
 
 
@@ -40,6 +41,11 @@ def get_job_service() -> JobService:
         review_repo=get_review_repo(),
         export_repo=get_export_repo(),
     )
+
+
+@lru_cache
+def get_practice_service() -> PracticeService:
+    return PracticeService(get_settings(), get_job_service())
 
 
 @lru_cache
