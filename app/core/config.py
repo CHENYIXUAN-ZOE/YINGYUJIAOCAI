@@ -2,7 +2,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Settings(BaseModel):
@@ -20,28 +20,36 @@ class Settings(BaseModel):
     web_dir: Path = base_dir / "app" / "web"
     template_dir: Path = web_dir / "templates"
     static_dir: Path = web_dir / "static"
-    max_upload_size_mb: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "200"))
-    openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
-    openai_base_url: str | None = os.getenv("OPENAI_BASE_URL")
-    google_cloud_project: str | None = os.getenv("GOOGLE_CLOUD_PROJECT")
-    google_cloud_location: str = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
-    google_application_credentials: str | None = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    gemini_ocr_model: str = os.getenv("GEMINI_OCR_MODEL") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    gemini_max_retries: int = int(os.getenv("GEMINI_MAX_RETRIES", "3"))
-    doubao_api_key: str | None = os.getenv("DOUBAO_API_KEY")
-    doubao_endpoint_id: str | None = os.getenv("DOUBAO_ENDPOINT_ID")
-    doubao_base_url: str = os.getenv("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
-    doubao_timeout_sec: int = int(os.getenv("DOUBAO_TIMEOUT_SEC", "60"))
-    ocr_page_batch_size: int = int(os.getenv("OCR_PAGE_BATCH_SIZE", "4"))
-    ocr_render_dpi: int = int(os.getenv("OCR_RENDER_DPI", "160"))
-    allow_placeholder_fallback: bool = os.getenv("ALLOW_PLACEHOLDER_FALLBACK", "false").lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    github_remote_url: str | None = os.getenv("GITHUB_REMOTE_URL")
+    max_upload_size_mb: int = Field(default_factory=lambda: int(os.getenv("MAX_UPLOAD_SIZE_MB", "200")))
+    openai_api_key: str | None = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
+    openai_base_url: str | None = Field(default_factory=lambda: os.getenv("OPENAI_BASE_URL"))
+    google_cloud_project: str | None = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT"))
+    google_cloud_location: str = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_LOCATION", "global"))
+    google_application_credentials: str | None = Field(
+        default_factory=lambda: os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    )
+    gemini_model: str = Field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+    gemini_ocr_model: str = Field(
+        default_factory=lambda: os.getenv("GEMINI_OCR_MODEL") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    )
+    gemini_max_retries: int = Field(default_factory=lambda: int(os.getenv("GEMINI_MAX_RETRIES", "3")))
+    doubao_api_key: str | None = Field(default_factory=lambda: os.getenv("DOUBAO_API_KEY"))
+    doubao_endpoint_id: str | None = Field(default_factory=lambda: os.getenv("DOUBAO_ENDPOINT_ID"))
+    doubao_base_url: str = Field(
+        default_factory=lambda: os.getenv("DOUBAO_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
+    )
+    doubao_timeout_sec: int = Field(default_factory=lambda: int(os.getenv("DOUBAO_TIMEOUT_SEC", "60")))
+    ocr_page_batch_size: int = Field(default_factory=lambda: int(os.getenv("OCR_PAGE_BATCH_SIZE", "4")))
+    ocr_render_dpi: int = Field(default_factory=lambda: int(os.getenv("OCR_RENDER_DPI", "160")))
+    allow_placeholder_fallback: bool = Field(
+        default_factory=lambda: os.getenv("ALLOW_PLACEHOLDER_FALLBACK", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+    )
+    github_remote_url: str | None = Field(default_factory=lambda: os.getenv("GITHUB_REMOTE_URL"))
 
     def ensure_directories(self) -> None:
         for path in [
