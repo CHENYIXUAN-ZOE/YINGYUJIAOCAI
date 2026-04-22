@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
@@ -23,3 +24,7 @@ class ResultRepository:
         if not path.exists():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def delete(self, job_id: str) -> None:
+        with contextlib.suppress(FileNotFoundError):
+            self._path(job_id).unlink()

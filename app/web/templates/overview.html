@@ -3,17 +3,17 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>功能总览</title>
-    <link rel="stylesheet" href="/static/app.css">
+    <title>任务总览</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260422a">
   </head>
   <body>
     <main class="page dashboard-page">
       <section class="hero hero-overview">
         <div>
-          <p class="eyebrow">Feature Design & Usage</p>
-          <h1>功能设计与使用总览</h1>
+          <p class="eyebrow">Operations Dashboard</p>
+          <h1>任务总览与内容产出统计</h1>
           <p class="intro">
-            这个页面集中展示当前系统的功能设计、处理流程、使用统计和最近任务入口，方便直接分享给产品、研发或测试查看。
+            这个页面集中展示当前系统的处理链路、任务统计、内容规模和最近任务入口，适合内容生产、教研、研发或测试查看。
           </p>
           <div class="hero-actions">
             <a class="button-link" href="/">返回上传页</a>
@@ -23,7 +23,7 @@
         <div class="panel share-panel">
           <p class="meta-label">分享链接</p>
           <code class="share-path">{{ share_url }}</code>
-          <p class="meta-text">服务启动后可直接访问这个地址查看功能设计和使用情况。</p>
+          <p class="meta-text">服务启动后可直接访问这个地址查看任务看板和产出统计。</p>
           <p class="meta-label">最近生成时间</p>
           <p class="meta-text">{{ overview.generated_at }}</p>
         </div>
@@ -55,8 +55,8 @@
       <section class="panel">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Design Flow</p>
-            <h2>功能设计</h2>
+            <p class="eyebrow">Processing Flow</p>
+            <h2>处理链路</h2>
           </div>
           <p class="section-note">围绕上传、解析、审核、导出四个阶段组织。</p>
         </div>
@@ -116,7 +116,7 @@
           <div class="section-head">
             <div>
               <p class="eyebrow">Content Totals</p>
-              <h2>内容规模</h2>
+              <h2>结构化内容规模</h2>
             </div>
             <p class="section-note">统计已经产出的结构化内容体量。</p>
           </div>

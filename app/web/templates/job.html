@@ -4,19 +4,43 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>任务状态</title>
-    <link rel="stylesheet" href="/static/app.css">
+    <link rel="stylesheet" href="/static/app.css?v=20260422a">
   </head>
   <body>
-    <main class="page">
+    <main class="page dashboard-page">
+      <section class="hero hero-overview">
+        <div>
+          <p class="eyebrow">Task Status</p>
+          <h1>任务状态与重跑入口</h1>
+          <p class="intro">这个页面用于查看当前任务的处理状态、失败原因和结果入口，并在需要时手动重新触发解析。</p>
+          <div class="hero-actions">
+            <a class="button-link" href="/">返回上传页</a>
+            <a class="button-link secondary" href="/results/{{ job_id }}">查看结果页</a>
+            <a class="button-link secondary" href="/review/{{ job_id }}">查看审核页</a>
+          </div>
+        </div>
+        <div class="panel share-panel">
+          <p class="meta-label">任务 ID</p>
+          <code class="share-path">{{ job_id }}</code>
+          <p class="meta-text">如果任务尚未开始或需要重跑解析，可在本页直接触发；如果已经完成，可跳转到结果页或审核页。</p>
+        </div>
+      </section>
+
       <section class="panel">
-        <h1>任务状态</h1>
-        <p>任务 ID：<code>{{ job_id }}</code></p>
-        <pre id="job-status" class="result-box"></pre>
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Live Status</p>
+            <h2>任务信息</h2>
+          </div>
+          <p class="section-note">会自动读取任务状态，并在处理中阶段轮询刷新。</p>
+        </div>
+        <div id="job-status" class="content-shell"></div>
+        <div id="job-actions" class="action-row"></div>
       </section>
     </main>
     <script>
-      window.APP_CONFIG = { apiPrefix: "{{ api_prefix }}", jobId: "{{ job_id }}" };
+      window.APP_CONFIG = { page: "job", apiPrefix: "{{ api_prefix }}", jobId: "{{ job_id }}" };
     </script>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=20260422a"></script>
   </body>
 </html>

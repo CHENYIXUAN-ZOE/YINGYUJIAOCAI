@@ -23,6 +23,7 @@ class ParseRequest(BaseModel):
 
 class JobStatusResponse(BaseModel):
     job_id: str
+    file_name: str
     status: ParseStatus
     progress: int
     review_status: ReviewStatus

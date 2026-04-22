@@ -10,6 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes.export import router as export_router
 from app.api.routes.jobs import router as jobs_router
+from app.api.routes.practice import router as practice_router
 from app.api.routes.results import router as results_router
 from app.api.routes.review import router as review_router
 from app.api.routes.upload import router as upload_router
@@ -28,6 +29,7 @@ app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="stat
 app.include_router(upload_router, prefix=settings.api_prefix)
 app.include_router(jobs_router, prefix=settings.api_prefix)
 app.include_router(results_router, prefix=settings.api_prefix)
+app.include_router(practice_router, prefix=settings.api_prefix)
 app.include_router(review_router, prefix=settings.api_prefix)
 app.include_router(export_router, prefix=settings.api_prefix)
 
@@ -61,12 +63,23 @@ async def custom_http_exception_handler(request: Request, exc: StarletteHTTPExce
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "api_prefix": settings.api_prefix})
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {
+            "request": request,
+            "api_prefix": settings.api_prefix,
+            "max_upload_size_mb": settings.max_upload_size_mb,
+            "initial_job_id": request.query_params.get("job_id", ""),
+            "initial_view": request.query_params.get("view", "overview"),
+        },
+    )
 
 
 @app.get("/overview", response_class=HTMLResponse)
 async def overview_page(request: Request, service: JobService = Depends(get_job_service)):
     return templates.TemplateResponse(
+        request,
         "overview.html",
         {
             "request": request,
@@ -79,12 +92,17 @@ async def overview_page(request: Request, service: JobService = Depends(get_job_
 
 @app.get("/jobs/{job_id}", response_class=HTMLResponse)
 async def job_page(request: Request, job_id: str):
-    return templates.TemplateResponse("job.html", {"request": request, "job_id": job_id, "api_prefix": settings.api_prefix})
+    return templates.TemplateResponse(
+        request,
+        "job.html",
+        {"request": request, "job_id": job_id, "api_prefix": settings.api_prefix},
+    )
 
 
 @app.get("/results/{job_id}", response_class=HTMLResponse)
 async def result_page(request: Request, job_id: str):
     return templates.TemplateResponse(
+        request,
         "result.html",
         {"request": request, "job_id": job_id, "api_prefix": settings.api_prefix},
     )
@@ -93,6 +111,21 @@ async def result_page(request: Request, job_id: str):
 @app.get("/review/{job_id}", response_class=HTMLResponse)
 async def review_page(request: Request, job_id: str):
     return templates.TemplateResponse(
+        request,
         "review.html",
         {"request": request, "job_id": job_id, "api_prefix": settings.api_prefix},
+    )
+
+
+@app.get("/practice", response_class=HTMLResponse)
+async def practice_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "practice.html",
+        {
+            "request": request,
+            "api_prefix": settings.api_prefix,
+            "initial_job_id": request.query_params.get("job_id", ""),
+            "initial_unit_id": request.query_params.get("unit_id", ""),
+        },
     )

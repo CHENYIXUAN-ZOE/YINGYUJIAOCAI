@@ -1,11 +1,13 @@
 from functools import lru_cache
 
+from app.clients.openai_compatible.practice_chat_client import OpenAICompatiblePracticeChatClient
 from app.core.config import get_settings
 from app.repositories.export_repo import ExportRepository
 from app.repositories.job_repo import JobRepository
 from app.repositories.result_repo import ResultRepository
 from app.repositories.review_repo import ReviewRepository
 from app.services.job_service import JobService
+from app.services.practice_service import PracticeService
 from app.services.reviewer.review_service import ReviewService
 
 
@@ -40,6 +42,16 @@ def get_job_service() -> JobService:
         review_repo=get_review_repo(),
         export_repo=get_export_repo(),
     )
+
+
+@lru_cache
+def get_openai_compatible_practice_client() -> OpenAICompatiblePracticeChatClient:
+    return OpenAICompatiblePracticeChatClient(get_settings())
+
+
+@lru_cache
+def get_practice_service() -> PracticeService:
+    return PracticeService(get_job_service(), get_openai_compatible_practice_client())
 
 
 @lru_cache

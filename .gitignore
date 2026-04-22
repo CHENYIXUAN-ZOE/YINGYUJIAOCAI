@@ -10,5 +10,6 @@ venv/
 !.env.example
 
 data/
+API/
 
 .DS_Store

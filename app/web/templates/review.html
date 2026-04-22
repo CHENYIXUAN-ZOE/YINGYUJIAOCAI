@@ -3,16 +3,56 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>审核页</title>
-    <link rel="stylesheet" href="/static/app.css">
+    <title>内容审核台</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260422a">
   </head>
   <body>
-    <main class="page">
-      <section class="panel">
-        <h1>审核页</h1>
-        <p>任务 ID：<code>{{ job_id }}</code></p>
-        <p>当前骨架阶段仅提供接口占位，审核动作请通过 API 调用。</p>
+    <main class="page dashboard-page">
+      <section class="hero hero-overview">
+        <div>
+          <p class="eyebrow">Content Review</p>
+          <h1>内容审核台</h1>
+          <p class="intro">按单元查看结构化内容，并对教材信息、单元、词汇、句型、对话样例、单元任务介绍和生成提示逐项审核。</p>
+          <div class="hero-actions">
+            <a class="button-link" href="/">返回上传页</a>
+            <a class="button-link secondary" href="/results/{{ job_id }}">查看结果页</a>
+            <a class="button-link secondary" href="/overview">任务总览</a>
+          </div>
+        </div>
+        <div class="panel share-panel">
+          <p class="meta-label">任务 ID</p>
+          <code class="share-path">{{ job_id }}</code>
+          <p class="meta-text">本页的按钮会直接调用审核接口并回写结果。可填写审核人和公共备注，随本次操作一起保存。</p>
+        </div>
       </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Review Setup</p>
+            <h2>本次审核信息</h2>
+          </div>
+          <p class="section-note">如果不填，也可以直接操作，系统会只记录状态变更。</p>
+        </div>
+        <div class="review-toolbar">
+          <label class="field">
+            <span class="field-label">审核人</span>
+            <input id="reviewer-name" type="text" placeholder="例如：教研 / 内容运营 / 自己的名字">
+          </label>
+          <label class="field field-wide">
+            <span class="field-label">公共备注</span>
+            <textarea id="review-note" rows="3" placeholder="这段备注会随按钮操作一起写入 review record"></textarea>
+          </label>
+        </div>
+        <p id="review-feedback" class="meta-text"></p>
+      </section>
+
+      <div id="review-summary"></div>
+      <div id="review-shell"></div>
     </main>
+    <script>
+      window.APP_CONFIG = { page: "review", apiPrefix: "{{ api_prefix }}", jobId: "{{ job_id }}" };
+    </script>
+    <script src="/static/app.js?v=20260422a"></script>
   </body>
 </html>
