@@ -253,9 +253,9 @@ function renderPracticePage() {
   if (providerStatus) {
     providerStatus.textContent = context
       ? context.provider.configured
-        ? `豆包已配置 ${context.provider.endpoint_id_masked || ""}`.trim()
-        : "豆包未配置，当前无法开始测试。"
-      : "选择单元后检查豆包配置。";
+        ? `${context.provider.name || "provider"} 已配置${context.provider.model ? ` · ${context.provider.model}` : ""}`.trim()
+        : `${context.provider.name || "provider"} 未配置，当前无法开始测试。`
+      : "选择单元后检查模型配置。";
   }
   if (gradeBadge) {
     gradeBadge.textContent = context ? `自动识别：${practiceGradeLabel(context.grade_band)}` : "未识别";

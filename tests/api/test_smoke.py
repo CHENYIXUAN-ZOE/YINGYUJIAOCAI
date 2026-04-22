@@ -126,7 +126,7 @@ class StubPracticeService:
                 "final_instruction": "Now begin.",
                 "final_prompt_preview": "template\n\nCurrent unit context:\n...",
             },
-            "provider": {"name": "doubao", "configured": True, "endpoint_id_masked": "ep-****"},
+            "provider": {"name": "qwen", "configured": True, "model": "qwen3.5-flash"},
         }
 
     def chat(self, request) -> dict:
@@ -134,7 +134,7 @@ class StubPracticeService:
             "assistant_message": {"role": "assistant", "content": "Hi! What will you do this Saturday?"},
             "round_count": 0 if request.is_opening_turn else 1,
             "status_hint": "",
-            "meta": {"request_id": "req_demo", "provider": "doubao", "endpoint_id_masked": "ep-****", "latency_ms": 10},
+            "meta": {"request_id": "req_demo", "provider": "qwen", "model": "qwen3.5-flash", "latency_ms": 10},
         }
 
 

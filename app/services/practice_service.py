@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.clients.doubao.practice_chat_client import DoubaoPracticeChatClient
+from app.clients.openai_compatible.practice_chat_client import OpenAICompatiblePracticeChatClient
 from app.core.errors import AppError
 from app.schemas.practice import PracticeChatRequest
 from app.services.job_service import JobService
@@ -96,7 +96,7 @@ _CHINESE_GRADE_MAP = {
 
 
 class PracticeService:
-    def __init__(self, job_service: JobService, practice_client: DoubaoPracticeChatClient):
+    def __init__(self, job_service: JobService, practice_client: OpenAICompatiblePracticeChatClient):
         self.job_service = job_service
         self.practice_client = practice_client
 
@@ -139,7 +139,7 @@ class PracticeService:
             "provider": {
                 "name": self.practice_client.provider_name,
                 "configured": self.practice_client.is_configured(),
-                "endpoint_id_masked": self.practice_client.endpoint_id_masked(),
+                "model": self.practice_client.model_name(),
             },
         }
 
@@ -147,7 +147,7 @@ class PracticeService:
         if not self.practice_client.is_configured():
             raise AppError(
                 "PRACTICE_PROVIDER_NOT_CONFIGURED",
-                "Doubao practice provider is not configured",
+                "Practice provider is not configured",
                 status_code=503,
             )
 
@@ -188,7 +188,7 @@ class PracticeService:
             "meta": {
                 "request_id": response.request_id,
                 "provider": self.practice_client.provider_name,
-                "endpoint_id_masked": self.practice_client.endpoint_id_masked(),
+                "model": self.practice_client.model_name(),
                 "latency_ms": response.latency_ms,
                 "usage": response.usage,
             },

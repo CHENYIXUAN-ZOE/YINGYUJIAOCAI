@@ -23,6 +23,9 @@ class Settings(BaseModel):
     max_upload_size_mb: int = Field(default_factory=lambda: int(os.getenv("MAX_UPLOAD_SIZE_MB", "200")))
     openai_api_key: str | None = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
     openai_base_url: str | None = Field(default_factory=lambda: os.getenv("OPENAI_BASE_URL"))
+    practice_provider_name: str = Field(default_factory=lambda: os.getenv("PRACTICE_PROVIDER_NAME", "openai-compatible"))
+    practice_model: str | None = Field(default_factory=lambda: os.getenv("PRACTICE_MODEL"))
+    practice_timeout_sec: int = Field(default_factory=lambda: int(os.getenv("PRACTICE_TIMEOUT_SEC", "60")))
     google_cloud_project: str | None = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT"))
     google_cloud_location: str = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_LOCATION", "global"))
     google_application_credentials: str | None = Field(

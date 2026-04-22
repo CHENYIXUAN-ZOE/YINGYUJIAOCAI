@@ -6,7 +6,7 @@ from urllib import error as urlerror
 
 import pytest
 
-from app.clients.doubao.practice_chat_client import DoubaoPracticeChatClient
+from app.clients.openai_compatible.practice_chat_client import OpenAICompatiblePracticeChatClient
 from app.core.config import Settings
 from app.core.errors import AppError
 
@@ -24,9 +24,11 @@ def build_settings(tmp_path) -> Settings:
         web_dir=tmp_path / "app" / "web",
         template_dir=tmp_path / "app" / "web" / "templates",
         static_dir=tmp_path / "app" / "web" / "static",
-        doubao_api_key="secret",
-        doubao_endpoint_id="ep-20241218162443",
-        doubao_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        openai_api_key="secret",
+        openai_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        practice_provider_name="qwen",
+        practice_model="qwen3.5-flash",
+        practice_timeout_sec=60,
     )
     settings.ensure_directories()
     return settings
@@ -47,7 +49,7 @@ class StubHTTPResponse:
 
 
 def test_create_chat_completion_parses_string_content(tmp_path, monkeypatch):
-    client = DoubaoPracticeChatClient(build_settings(tmp_path))
+    client = OpenAICompatiblePracticeChatClient(build_settings(tmp_path))
 
     def fake_urlopen(request, timeout=0):
         assert request.full_url.endswith("/chat/completions")
@@ -70,7 +72,7 @@ def test_create_chat_completion_parses_string_content(tmp_path, monkeypatch):
 
 
 def test_create_chat_completion_maps_http_errors(tmp_path, monkeypatch):
-    client = DoubaoPracticeChatClient(build_settings(tmp_path))
+    client = OpenAICompatiblePracticeChatClient(build_settings(tmp_path))
 
     def fake_urlopen(request, timeout=0):
         raise urlerror.HTTPError(

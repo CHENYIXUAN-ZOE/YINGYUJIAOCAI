@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from app.clients.doubao.practice_chat_client import DoubaoPracticeChatClient
+from app.clients.openai_compatible.practice_chat_client import OpenAICompatiblePracticeChatClient
 from app.core.config import get_settings
 from app.repositories.export_repo import ExportRepository
 from app.repositories.job_repo import JobRepository
@@ -45,13 +45,13 @@ def get_job_service() -> JobService:
 
 
 @lru_cache
-def get_doubao_practice_client() -> DoubaoPracticeChatClient:
-    return DoubaoPracticeChatClient(get_settings())
+def get_openai_compatible_practice_client() -> OpenAICompatiblePracticeChatClient:
+    return OpenAICompatiblePracticeChatClient(get_settings())
 
 
 @lru_cache
 def get_practice_service() -> PracticeService:
-    return PracticeService(get_job_service(), get_doubao_practice_client())
+    return PracticeService(get_job_service(), get_openai_compatible_practice_client())
 
 
 @lru_cache

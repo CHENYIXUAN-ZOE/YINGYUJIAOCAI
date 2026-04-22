@@ -12,35 +12,32 @@ from app.core.errors import AppError
 
 
 @dataclass(frozen=True)
-class DoubaoPracticeChatResponse:
+class OpenAICompatiblePracticeChatResponse:
     assistant_message: str
     request_id: str
     latency_ms: int
     usage: dict[str, Any]
 
 
-class DoubaoPracticeChatClient:
-    provider_name = "doubao"
-
+class OpenAICompatiblePracticeChatClient:
     def __init__(self, settings: Settings):
         self.settings = settings
 
+    @property
+    def provider_name(self) -> str:
+        return (self.settings.practice_provider_name or "openai-compatible").strip().lower()
+
+    def model_name(self) -> str:
+        return (self.settings.practice_model or "").strip()
+
     def is_configured(self) -> bool:
-        return bool(self.settings.doubao_api_key and self.settings.doubao_endpoint_id and self._chat_url())
+        return bool(self.settings.openai_api_key and self.model_name() and self._chat_url())
 
-    def endpoint_id_masked(self) -> str:
-        endpoint_id = self.settings.doubao_endpoint_id
-        if not endpoint_id:
-            return ""
-        if len(endpoint_id) <= 6:
-            return endpoint_id
-        return f"{endpoint_id[:3]}-****"
-
-    def create_chat_completion(self, messages: list[dict[str, str]]) -> DoubaoPracticeChatResponse:
+    def create_chat_completion(self, messages: list[dict[str, str]]) -> OpenAICompatiblePracticeChatResponse:
         self._ensure_configured()
 
         request_payload = {
-            "model": self.settings.doubao_endpoint_id,
+            "model": self.model_name(),
             "messages": messages,
             "temperature": 0.7,
             "stream": False,
@@ -52,14 +49,14 @@ class DoubaoPracticeChatClient:
             data=encoded_body,
             headers={
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.settings.doubao_api_key}",
+                "Authorization": f"Bearer {self.settings.openai_api_key}",
             },
             method="POST",
         )
 
         started_at = time.perf_counter()
         try:
-            with urlrequest.urlopen(req, timeout=self.settings.doubao_timeout_sec) as response:
+            with urlrequest.urlopen(req, timeout=self.settings.practice_timeout_sec) as response:
                 raw_body = response.read().decode("utf-8")
             payload = json.loads(raw_body)
         except urlerror.HTTPError as exc:
@@ -71,19 +68,19 @@ class DoubaoPracticeChatClient:
                 details["body"] = ""
             raise AppError(
                 "PRACTICE_PROVIDER_REQUEST_FAILED",
-                "Doubao request failed",
+                "Practice provider request failed",
                 status_code=502,
                 details=details,
             ) from exc
         except (urlerror.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
             raise AppError(
                 "PRACTICE_PROVIDER_REQUEST_FAILED",
-                "Doubao request failed",
+                "Practice provider request failed",
                 status_code=502,
                 details={"message": str(exc)},
             ) from exc
 
-        return DoubaoPracticeChatResponse(
+        return OpenAICompatiblePracticeChatResponse(
             assistant_message=self._extract_assistant_message(payload),
             request_id=str(payload.get("id", "") or ""),
             latency_ms=int((time.perf_counter() - started_at) * 1000),
@@ -91,21 +88,21 @@ class DoubaoPracticeChatClient:
         )
 
     def _ensure_configured(self) -> None:
-        if not self.settings.doubao_api_key or not self.settings.doubao_endpoint_id:
+        if not self.settings.openai_api_key or not self.model_name():
             raise AppError(
                 "PRACTICE_PROVIDER_NOT_CONFIGURED",
-                "Doubao practice provider is not configured",
+                "Practice provider is not configured",
                 status_code=503,
             )
         if not self._chat_url():
             raise AppError(
                 "PRACTICE_PROVIDER_NOT_CONFIGURED",
-                "Doubao base URL is not configured",
+                "Practice provider base URL is not configured",
                 status_code=503,
             )
 
     def _chat_url(self) -> str:
-        base_url = (self.settings.doubao_base_url or "").rstrip("/")
+        base_url = (self.settings.openai_base_url or "").rstrip("/")
         if not base_url:
             return ""
         if base_url.endswith("/chat/completions"):
@@ -117,7 +114,7 @@ class DoubaoPracticeChatClient:
         if not choices:
             raise AppError(
                 "PRACTICE_PROVIDER_REQUEST_FAILED",
-                "Doubao response did not contain choices",
+                "Practice provider response did not contain choices",
                 status_code=502,
             )
         message = choices[0].get("message", {})
@@ -136,7 +133,7 @@ class DoubaoPracticeChatClient:
         if not content:
             raise AppError(
                 "PRACTICE_PROVIDER_REQUEST_FAILED",
-                "Doubao response did not contain assistant content",
+                "Practice provider response did not contain assistant content",
                 status_code=502,
             )
         return content

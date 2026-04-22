@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.clients.doubao.practice_chat_client import DoubaoPracticeChatResponse
+from app.clients.openai_compatible.practice_chat_client import OpenAICompatiblePracticeChatResponse
 from app.core.errors import AppError
 from app.schemas.job import ParseJob
 from app.schemas.common import ParseStatus, ReviewStatus
@@ -57,11 +57,11 @@ class StubJobService:
 
 
 class StubPracticeClient:
-    provider_name = "doubao"
+    provider_name = "qwen"
 
-    def __init__(self, configured: bool = True, response: DoubaoPracticeChatResponse | None = None):
+    def __init__(self, configured: bool = True, response: OpenAICompatiblePracticeChatResponse | None = None):
         self.configured = configured
-        self.response = response or DoubaoPracticeChatResponse(
+        self.response = response or OpenAICompatiblePracticeChatResponse(
             assistant_message="Hi! What will you do this Saturday?",
             request_id="req_demo",
             latency_ms=12,
@@ -72,10 +72,10 @@ class StubPracticeClient:
     def is_configured(self) -> bool:
         return self.configured
 
-    def endpoint_id_masked(self) -> str:
-        return "ep-****" if self.configured else ""
+    def model_name(self) -> str:
+        return "qwen3.5-flash" if self.configured else ""
 
-    def create_chat_completion(self, messages: list[dict[str, str]]) -> DoubaoPracticeChatResponse:
+    def create_chat_completion(self, messages: list[dict[str, str]]) -> OpenAICompatiblePracticeChatResponse:
         self.messages = messages
         return self.response
 
@@ -115,7 +115,7 @@ def test_chat_requires_provider_configuration(tmp_path):
     assert exc_info.value.code == "PRACTICE_PROVIDER_NOT_CONFIGURED"
 
 
-def test_chat_uses_doubao_client_response(tmp_path):
+def test_chat_uses_provider_client_response(tmp_path):
     client = StubPracticeClient(configured=True)
     service = PracticeService(StubJobService(), client)
 
@@ -138,5 +138,6 @@ def test_chat_uses_doubao_client_response(tmp_path):
 
     assert payload["assistant_message"]["content"] == "Hi! What will you do this Saturday?"
     assert payload["meta"]["request_id"] == "req_demo"
-    assert payload["meta"]["provider"] == "doubao"
+    assert payload["meta"]["provider"] == "qwen"
+    assert payload["meta"]["model"] == "qwen3.5-flash"
     assert client.messages[0] == {"role": "system", "content": "final prompt"}
