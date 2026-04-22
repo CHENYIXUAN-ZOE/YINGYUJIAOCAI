@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
-from urllib import error as urlerror
-from urllib import request as urlrequest
 
-from app.core.config import Settings
+from app.clients.doubao.practice_chat_client import DoubaoPracticeChatClient
 from app.core.errors import AppError
 from app.schemas.practice import PracticeChatRequest
 from app.services.job_service import JobService
@@ -99,9 +96,9 @@ _CHINESE_GRADE_MAP = {
 
 
 class PracticeService:
-    def __init__(self, settings: Settings, job_service: JobService):
-        self.settings = settings
+    def __init__(self, job_service: JobService, practice_client: DoubaoPracticeChatClient):
         self.job_service = job_service
+        self.practice_client = practice_client
 
     def get_context(self, job_id: str, unit_id: str) -> dict[str, Any]:
         job = self.job_service.get_job(job_id)
@@ -140,14 +137,14 @@ class PracticeService:
                 ),
             },
             "provider": {
-                "name": "doubao",
-                "configured": self._provider_configured(),
-                "endpoint_id_masked": self._mask_endpoint_id(self.settings.doubao_endpoint_id),
+                "name": self.practice_client.provider_name,
+                "configured": self.practice_client.is_configured(),
+                "endpoint_id_masked": self.practice_client.endpoint_id_masked(),
             },
         }
 
     def chat(self, payload: PracticeChatRequest) -> dict[str, Any]:
-        if not self._provider_configured():
+        if not self.practice_client.is_configured():
             raise AppError(
                 "PRACTICE_PROVIDER_NOT_CONFIGURED",
                 "Doubao practice provider is not configured",
@@ -181,20 +178,19 @@ class PracticeService:
                 raise AppError("PRACTICE_INVALID_MESSAGES", "student_message is required", status_code=400)
             outgoing_messages.append({"role": "user", "content": student_message})
 
-        response = self._request_doubao(outgoing_messages)
-        assistant_message = self._extract_assistant_message(response)
+        response = self.practice_client.create_chat_completion(outgoing_messages)
         round_count = self._count_rounds(payload.messages, student_message, payload.is_opening_turn)
 
         return {
-            "assistant_message": {"role": "assistant", "content": assistant_message},
+            "assistant_message": {"role": "assistant", "content": response.assistant_message},
             "round_count": round_count,
             "status_hint": "接近建议轮次，但可继续对话" if round_count >= 7 else "",
             "meta": {
-                "request_id": response.get("id", ""),
-                "provider": "doubao",
-                "endpoint_id_masked": self._mask_endpoint_id(self.settings.doubao_endpoint_id),
-                "latency_ms": response.get("_latency_ms", 0),
-                "usage": response.get("usage", {}),
+                "request_id": response.request_id,
+                "provider": self.practice_client.provider_name,
+                "endpoint_id_masked": self.practice_client.endpoint_id_masked(),
+                "latency_ms": response.latency_ms,
+                "usage": response.usage,
             },
         }
 
@@ -278,108 +274,8 @@ class PracticeService:
             return DEFAULT_PROMPT_TEMPLATE_5_6
         raise AppError("PRACTICE_INVALID_GRADE_BAND", "unsupported grade band", status_code=400)
 
-    def _provider_configured(self) -> bool:
-        return bool(self.settings.doubao_api_key and self.settings.doubao_endpoint_id)
-
-    def _chat_url(self) -> str:
-        base_url = (self.settings.doubao_base_url or "").rstrip("/")
-        if not base_url:
-            return ""
-        if base_url.endswith("/chat/completions"):
-            return base_url
-        return f"{base_url}/chat/completions"
-
-    def _request_doubao(self, messages: list[dict[str, str]]) -> dict[str, Any]:
-        url = self._chat_url()
-        if not url:
-            raise AppError(
-                "PRACTICE_PROVIDER_NOT_CONFIGURED",
-                "Doubao base URL is not configured",
-                status_code=503,
-            )
-
-        request_payload = {
-            "model": self.settings.doubao_endpoint_id,
-            "messages": messages,
-            "temperature": 0.7,
-            "stream": False,
-        }
-
-        encoded_body = json.dumps(request_payload).encode("utf-8")
-        req = urlrequest.Request(
-            url,
-            data=encoded_body,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.settings.doubao_api_key}",
-            },
-            method="POST",
-        )
-
-        try:
-            with urlrequest.urlopen(req, timeout=self.settings.doubao_timeout_sec) as response:
-                raw_body = response.read().decode("utf-8")
-            payload = json.loads(raw_body)
-            return payload
-        except urlerror.HTTPError as exc:
-            details = {"status": exc.code}
-            try:
-                raw = exc.read().decode("utf-8")
-                details["body"] = json.loads(raw)
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-                details["body"] = ""
-            raise AppError(
-                "PRACTICE_PROVIDER_REQUEST_FAILED",
-                "Doubao request failed",
-                status_code=502,
-                details=details,
-            ) from exc
-        except (urlerror.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-            raise AppError(
-                "PRACTICE_PROVIDER_REQUEST_FAILED",
-                "Doubao request failed",
-                status_code=502,
-                details={"message": str(exc)},
-            ) from exc
-
-    def _extract_assistant_message(self, payload: dict[str, Any]) -> str:
-        choices = payload.get("choices") or []
-        if not choices:
-            raise AppError(
-                "PRACTICE_PROVIDER_REQUEST_FAILED",
-                "Doubao response did not contain choices",
-                status_code=502,
-            )
-        message = choices[0].get("message", {})
-        content = message.get("content")
-        if isinstance(content, str):
-            content = content.strip()
-        elif isinstance(content, list):
-            content = "".join(
-                item.get("text", "")
-                for item in content
-                if isinstance(item, dict) and item.get("type") in {None, "text", "output_text"}
-            ).strip()
-        else:
-            content = ""
-
-        if not content:
-            raise AppError(
-                "PRACTICE_PROVIDER_REQUEST_FAILED",
-                "Doubao response did not contain assistant content",
-                status_code=502,
-            )
-        return content
-
     def _count_rounds(self, prior_messages: list[Any], student_message: str, is_opening_turn: bool) -> int:
         completed_user_turns = sum(1 for item in prior_messages if getattr(item, "role", "") == "user")
         if is_opening_turn:
             return completed_user_turns
         return completed_user_turns + (1 if student_message else 0)
-
-    def _mask_endpoint_id(self, endpoint_id: str | None) -> str:
-        if not endpoint_id:
-            return ""
-        if len(endpoint_id) <= 6:
-            return endpoint_id
-        return f"{endpoint_id[:3]}-****"
