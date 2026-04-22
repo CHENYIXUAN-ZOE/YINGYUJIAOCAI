@@ -50,6 +50,34 @@ def test_process_keeps_existing_text_when_ocr_api_is_not_configured(tmp_path, mo
     ]
 
 
+def test_process_prefers_embedded_text_layer_when_pdftotext_succeeds(tmp_path, monkeypatch):
+    credentials_path = tmp_path / "creds.json"
+    credentials_path.write_text(json.dumps({"project_id": "demo-project"}), encoding="utf-8")
+    settings = build_settings(tmp_path, credentials_path=credentials_path)
+    monkeypatch.setattr(ocr_processor, "get_settings", lambda: settings)
+
+    def _unexpected_ocr_call(*args, **kwargs):
+        raise AssertionError("OCR should not run when pdftotext already extracted text")
+
+    monkeypatch.setattr(ocr_processor, "_extract_page_texts_with_gemini", _unexpected_ocr_call)
+
+    document = {
+        "file_path": str(tmp_path / "sample.pdf"),
+        "extractor": "pdftotext",
+        "page_texts": ["Unit 1 Hello!\nLesson 1"],
+    }
+
+    result = ocr_processor.process(document)
+
+    assert result["ocr_used"] is False
+    assert result["ocr_backend"] == "pdftotext"
+    assert result["page_count"] == 1
+    assert result["page_lines"] == [
+        {"page_num": 1, "line": "Unit 1 Hello!"},
+        {"page_num": 1, "line": "Lesson 1"},
+    ]
+
+
 def test_process_rebuilds_document_from_gemini_ocr_output(tmp_path, monkeypatch):
     credentials_path = tmp_path / "creds.json"
     credentials_path.write_text(json.dumps({"project_id": "demo-project"}), encoding="utf-8")
@@ -68,7 +96,7 @@ def test_process_rebuilds_document_from_gemini_ocr_output(tmp_path, monkeypatch)
     pdf_path.write_bytes(b"%PDF-1.4")
     document = {
         "file_path": str(pdf_path),
-        "extractor": "pdftotext",
+        "extractor": "raw_stream",
         "page_texts": ["stale text"],
         "page_lines": [{"page_num": 1, "line": "stale text"}],
         "lines": ["stale text"],
