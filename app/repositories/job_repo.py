@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 from app.core.config import Settings
@@ -29,3 +30,7 @@ class JobRepository:
         for path in sorted(self.base_dir.glob("*.json"), reverse=True):
             jobs.append(ParseJob.model_validate_json(path.read_text(encoding="utf-8")))
         return jobs
+
+    def delete(self, job_id: str) -> None:
+        with contextlib.suppress(FileNotFoundError):
+            self._path(job_id).unlink()

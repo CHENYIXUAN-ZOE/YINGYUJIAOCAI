@@ -3,20 +3,53 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>结构化结果</title>
-    <link rel="stylesheet" href="/static/app.css">
+    <title>结构化内容结果</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260421e">
   </head>
   <body>
-    <main class="page">
-      <section class="panel">
-        <h1>结构化结果</h1>
-        <p>任务 ID：<code>{{ job_id }}</code></p>
-        <pre id="result-data" class="result-box"></pre>
+    <main class="page dashboard-page">
+      <section class="hero hero-overview">
+        <div>
+          <p class="eyebrow">Structured Output</p>
+          <h1>结构化内容结果与导出</h1>
+          <p class="intro">展示当前任务生成的单元、词汇、句型、对话样例、单元任务介绍和生成提示，并同时提供按内容队列查看和按单元查看两种视图。</p>
+          <div class="hero-actions">
+            <a class="button-link" href="/">返回上传页</a>
+            <a class="button-link secondary" href="/overview">任务总览</a>
+            <a class="button-link secondary" href="/review/{{ job_id }}">进入审核页</a>
+          </div>
+        </div>
+        <div class="panel share-panel">
+          <p class="meta-label">任务 ID</p>
+          <code class="share-path">{{ job_id }}</code>
+          <p class="meta-text">可切换“仅看已通过项”，也可以在当前页直接发起导出。</p>
+        </div>
       </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Filters & Export</p>
+            <h2>查看设置</h2>
+          </div>
+          <div class="toolbar">
+            <label class="toggle">
+              <input id="approved-only-toggle" type="checkbox">
+              <span>仅看已通过项</span>
+            </label>
+            <button type="button" class="secondary" data-export-format="json">导出 JSON</button>
+            <button type="button" class="secondary" data-export-format="markdown">导出 Markdown</button>
+            <button type="button" class="secondary" data-export-format="xlsx">导出 Excel</button>
+          </div>
+        </div>
+        <div id="export-feedback" class="meta-text"></div>
+      </section>
+
+      <div id="result-shell"></div>
     </main>
     <script>
-      window.APP_CONFIG = { apiPrefix: "{{ api_prefix }}", jobId: "{{ job_id }}" };
+      window.APP_CONFIG = { page: "result", apiPrefix: "{{ api_prefix }}", jobId: "{{ job_id }}" };
     </script>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=20260421e"></script>
   </body>
 </html>

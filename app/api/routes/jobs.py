@@ -23,3 +23,13 @@ def parse_job(
 @router.get("/jobs/{job_id}", response_model=ApiResponse)
 def get_job_status(job_id: str, service: JobService = Depends(get_job_service)):
     return ApiResponse(data=service.get_job_status(job_id).model_dump(mode="json"))
+
+
+@router.delete("/jobs/{job_id}", response_model=ApiResponse)
+def delete_job(job_id: str, service: JobService = Depends(get_job_service)):
+    return ApiResponse(data=service.delete_job(job_id))
+
+
+@router.get("/overview", response_model=ApiResponse)
+def get_overview(limit: int = 12, service: JobService = Depends(get_job_service)):
+    return ApiResponse(data=service.get_overview(limit=limit))

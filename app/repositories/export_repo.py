@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
@@ -53,3 +54,21 @@ class ExportRepository:
                 continue
             records.append(payload)
         return records
+
+    def delete_export(self, export_id: str) -> None:
+        metadata = self.get_metadata(export_id)
+        if metadata and metadata.get("file_path"):
+            with contextlib.suppress(FileNotFoundError):
+                Path(metadata["file_path"]).unlink()
+        with contextlib.suppress(FileNotFoundError):
+            self.metadata_path(export_id).unlink()
+        with contextlib.suppress(FileNotFoundError):
+            self._legacy_metadata_path(export_id).unlink()
+
+    def delete_exports_for_job(self, job_id: str) -> None:
+        for metadata in self.list_metadata():
+            if metadata.get("job_id") != job_id:
+                continue
+            export_id = metadata.get("export_id")
+            if export_id:
+                self.delete_export(export_id)

@@ -3,46 +3,261 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>口语练习 - 教材解析</title>
-    <link rel="stylesheet" href="/static/app.css">
+    <title>教材内容产出工具</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260421e">
   </head>
   <body>
-    <main class="page">
-      <section class="hero">
-        <p class="eyebrow">Textbook Parser Skeleton</p>
-        <h1>教材解析与结构化内容生成</h1>
-        <p class="intro">上传英文教材 PDF，生成可审核、可导出的结构化单元内容。</p>
-        <div class="hero-actions">
-          <a class="button-link" href="/overview">查看功能总览</a>
-        </div>
-      </section>
-      <section class="panel">
-        <h2>上传 PDF</h2>
-        <form id="upload-form">
-          <input id="pdf-file" type="file" accept=".pdf" required>
-          <button type="submit">上传并创建任务</button>
-        </form>
-        <pre id="upload-result" class="result-box"></pre>
-      </section>
-      <section class="panel">
-        <h2>查看与分享</h2>
-        <p>后续如需查看功能设计、流程状态和最近使用情况，可直接访问 <code>/overview</code>。</p>
-      </section>
-      <section class="panel">
-        <h2>主要接口</h2>
-        <ul class="api-list">
-          <li><code>{{ api_prefix }}/upload</code></li>
-          <li><code>{{ api_prefix }}/parse/{job_id}</code></li>
-          <li><code>{{ api_prefix }}/jobs/{job_id}</code></li>
-          <li><code>{{ api_prefix }}/results/{job_id}</code></li>
-          <li><code>{{ api_prefix }}/review/items/{target_type}/{target_id}</code></li>
-          <li><code>{{ api_prefix }}/export</code></li>
-        </ul>
+    <main class="workspace-page">
+      <aside class="workspace-sidebar">
+        <section class="sidebar-panel brand-panel">
+          <p class="eyebrow">Content Production Console</p>
+          <h1>教材内容产出工具</h1>
+        </section>
+
+        <nav id="workspace-nav" class="workspace-nav">
+          <button type="button" class="nav-button{% if initial_view == 'overview' %} is-active{% endif %}" data-workspace-view="overview">任务总览</button>
+          <button type="button" class="nav-button{% if initial_view == 'upload' %} is-active{% endif %}" data-workspace-view="upload">上传教材</button>
+          <button type="button" class="nav-button{% if initial_view == 'status' %} is-active{% endif %}" data-workspace-view="status">处理状态</button>
+          <button type="button" class="nav-button{% if initial_view == 'results' %} is-active{% endif %}" data-workspace-view="results">内容产出</button>
+          <button type="button" class="nav-button{% if initial_view == 'review' %} is-active{% endif %}" data-workspace-view="review">审核面板</button>
+          <button type="button" class="nav-button{% if initial_view == 'export' %} is-active{% endif %}" data-workspace-view="export">导出交付</button>
+        </nav>
+
+        <section class="sidebar-panel">
+          <span class="meta-label">当前任务</span>
+          <strong id="workspace-current-job">未选择任务</strong>
+          <p id="workspace-current-file" class="meta-text">可从最近任务直接载入，或先上传新的教材 PDF。</p>
+          <a id="workspace-share-link" class="share-path share-path-compact" href="/">/?job_id=...</a>
+          <div class="action-row">
+            <button type="button" class="danger small" id="delete-current-job-button">删除当前任务</button>
+          </div>
+        </section>
+
+        <section class="sidebar-panel">
+          <label class="field">
+            <span class="field-label">任务 ID</span>
+            <input id="job-id-input" type="text" placeholder="job_xxxxxxxxxx">
+          </label>
+          <div class="action-row">
+            <button type="button" id="load-job-button">载入任务</button>
+            <button type="button" class="secondary" id="clear-job-button">清空</button>
+          </div>
+        </section>
+
+        <section class="sidebar-panel">
+          <div class="section-head section-head-compact">
+            <div>
+              <p class="eyebrow">Recent Jobs</p>
+              <h2>最近任务</h2>
+            </div>
+          </div>
+          <div id="sidebar-recent-jobs" class="sidebar-list">
+            <div class="empty-state compact-empty">正在加载最近任务...</div>
+          </div>
+        </section>
+      </aside>
+
+      <section class="workspace-main">
+        <header class="panel workspace-header">
+          <div>
+            <p class="eyebrow">One Page Workspace</p>
+            <h2>整本教材处理工作台</h2>
+            <p class="section-note">当前单文件默认上限为 {{ max_upload_size_mb }} MB，可通过环境变量 <code>MAX_UPLOAD_SIZE_MB</code> 调整。单元筛选会同步影响内容查看、审核和 Excel/JSON/Markdown 导出范围。</p>
+          </div>
+          <div class="workspace-toolbar">
+            <label class="field field-inline">
+              <span class="field-label">单元筛选</span>
+              <select id="workspace-unit-filter">
+                <option value="all">整本教材</option>
+              </select>
+            </label>
+            <button type="button" class="secondary" id="refresh-overview-button">刷新总览</button>
+            <button type="button" id="refresh-current-button">刷新当前任务</button>
+          </div>
+        </header>
+
+        <div id="workspace-feedback"></div>
+
+        <section class="workspace-view{% if initial_view == 'overview' %} is-active{% endif %}" data-workspace-panel="overview">
+          <div class="panel">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Overview</p>
+                <h2>任务总览</h2>
+              </div>
+              <p class="section-note">这里会汇总最近任务、整体处理状态和最近导出记录。</p>
+            </div>
+            <div id="overview-summary">
+              <div class="empty-state compact-empty">正在加载总览数据...</div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Recent Jobs</p>
+                <h2>最近任务列表</h2>
+              </div>
+              <p class="section-note">点击“载入工作台”后，右侧其他栏目会切换到对应任务。</p>
+            </div>
+            <div id="overview-jobs">
+              <div class="empty-state compact-empty">正在加载任务列表...</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="workspace-view{% if initial_view == 'upload' %} is-active{% endif %}" data-workspace-panel="upload">
+          <div class="panel panel-upload">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Upload & Parse</p>
+                <h2>上传教材 PDF 并启动整本书处理</h2>
+              </div>
+              <p class="section-note">上传成功后会自动创建任务并进入“解析 → 结构化 → 生成”链路，工作台会自动切到当前任务。</p>
+            </div>
+            <form id="upload-form" class="upload-form">
+              <label class="field">
+                <span class="field-label">教材 PDF</span>
+                <input id="pdf-file" type="file" accept=".pdf" required>
+              </label>
+              <button type="submit">上传并创建产出任务</button>
+            </form>
+            <div class="feedback-stack">
+              <div id="upload-stage" class="status-banner">等待上传 PDF</div>
+              <div id="upload-summary" class="empty-state compact-empty">上传完成后，这里会显示任务快照，并自动在工作台中载入当前任务。</div>
+              <div id="upload-links" class="action-row"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="workspace-view{% if initial_view == 'status' %} is-active{% endif %}" data-workspace-panel="status">
+          <div class="panel">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Status</p>
+                <h2>处理状态</h2>
+              </div>
+              <p class="section-note">支持查看任务阶段、失败信息，以及手动触发重新解析。</p>
+            </div>
+            <div id="job-status" class="content-shell">
+              <div class="empty-state">请先在左侧载入任务，或上传新的教材。</div>
+            </div>
+            <div id="job-actions" class="feedback-stack"></div>
+          </div>
+        </section>
+
+        <section class="workspace-view{% if initial_view == 'results' %} is-active{% endif %}" data-workspace-panel="results">
+          <div class="panel">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Results</p>
+                <h2>内容产出</h2>
+              </div>
+              <label class="toggle">
+                <input id="result-approved-toggle" type="checkbox">
+                只查看已通过审核内容
+              </label>
+            </div>
+            <p class="section-note">结果区会同时显示单词队列、句型队列、对话样例队列，以及按单元展开的完整明细。</p>
+            <div id="result-shell">
+              <div class="empty-state">请先完成解析并载入一个任务。</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="workspace-view{% if initial_view == 'review' %} is-active{% endif %}" data-workspace-panel="review">
+          <div class="panel">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Review</p>
+                <h2>审核面板</h2>
+              </div>
+              <p class="section-note">审核操作直接在当前页完成，支持单条处理和整单元批量通过/返修。</p>
+            </div>
+            <div class="review-toolbar">
+              <label class="field">
+                <span class="field-label">审核人</span>
+                <input id="reviewer-name" type="text" placeholder="例如：教研组 A">
+              </label>
+              <label class="field field-wide">
+                <span class="field-label">审核备注</span>
+                <textarea id="review-note" rows="3" placeholder="例如：Unit 2 词汇释义需要进一步统一口径"></textarea>
+              </label>
+            </div>
+            <div id="review-feedback" class="meta-text"></div>
+            <div id="review-summary">
+              <div class="empty-state compact-empty">请先完成解析并载入一个任务。</div>
+            </div>
+            <div id="review-shell">
+              <div class="empty-state">当前没有可审核内容。</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="workspace-view{% if initial_view == 'export' %} is-active{% endif %}" data-workspace-panel="export">
+          <div class="panel">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Export</p>
+                <h2>导出交付</h2>
+              </div>
+              <label class="toggle">
+                <input id="export-approved-toggle" type="checkbox">
+                仅导出已审核通过内容
+              </label>
+            </div>
+            <div class="export-layout">
+              <div class="export-actions-panel">
+                <p class="meta-text">当前支持导出 <code>json</code>、<code>markdown</code> 和 <code>xlsx</code>。若已选择某个单元，导出会自动限制到该单元。</p>
+                <div class="action-row">
+                  <button type="button" data-workspace-export-format="json">导出 JSON</button>
+                  <button type="button" class="secondary" data-workspace-export-format="markdown">导出 Markdown</button>
+                  <button type="button" class="secondary" data-workspace-export-format="xlsx">导出 Excel</button>
+                </div>
+                <div id="export-feedback" class="meta-text"></div>
+              </div>
+              <div class="panel export-plan-card">
+                <div class="section-head section-head-compact">
+                  <div>
+                    <p class="eyebrow">Excel Sheets</p>
+                    <h3>Excel 分类规划</h3>
+                  </div>
+                </div>
+                <ul class="sheet-plan">
+                  <li><strong>教材信息</strong>：教材名称、版本、出版社、来源任务、审核状态、导出时间等</li>
+                  <li><strong>单元总表</strong>：单元编码、单元名称、主题、来源页、各类内容数量</li>
+                  <li><strong>词汇</strong>：教材名称、单元编码、单元名称、单词、词性、解释、例句、美音、英音等</li>
+                  <li><strong>句型</strong>：重点句型、用法说明、例句、来源页、审核状态</li>
+                  <li><strong>对话样例 / 对话轮次</strong>：样例标题和逐轮中英文内容拆开成两个 sheet</li>
+                  <li><strong>单元任务 / 生成提示</strong>：任务说明、主题、语法规则、提示说明、来源依据</li>
+                  <li><strong>审核记录</strong>：review_id、目标类型、审核状态、备注、审核人、时间</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Recent Exports</p>
+                <h2>最近导出记录</h2>
+              </div>
+            </div>
+            <div id="overview-exports">
+              <div class="empty-state compact-empty">正在加载导出记录...</div>
+            </div>
+          </div>
+        </section>
       </section>
     </main>
     <script>
-      window.APP_CONFIG = { apiPrefix: "{{ api_prefix }}" };
+      window.APP_CONFIG = {
+        page: "workspace",
+        apiPrefix: "{{ api_prefix }}",
+        maxUploadSizeMb: {{ max_upload_size_mb }},
+        jobId: "{{ initial_job_id }}",
+        initialView: "{{ initial_view }}"
+      };
     </script>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=20260421e"></script>
+    <script src="/static/workspace.js?v=20260421e"></script>
   </body>
 </html>

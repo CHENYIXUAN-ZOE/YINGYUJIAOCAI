@@ -3,8 +3,10 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
+import contextlib
 from uuid import uuid4
 
+from app.core.config import get_settings
 from app.core.errors import AppError
 from app.repositories.export_repo import ExportRepository
 from app.repositories.job_repo import JobRepository
@@ -23,16 +25,14 @@ from app.schemas.export import ExportRequest
 from app.schemas.job import JobStatusResponse, ParseJob
 from app.services.exporter.json_exporter import export_json
 from app.services.exporter.markdown_exporter import export_markdown
-from app.services.generator import dialogue_generator, prompt_generator, sentence_generator, task_generator, vocabulary_generator
+from app.services.exporter.xlsx_exporter import export_xlsx
+from app.services.generator.unit_content_generator import UnitContentGenerator
 from app.services.parser import (
-    dialogue_extractor,
     layout_analyzer,
     ocr_processor,
     pdf_loader,
     section_classifier,
-    sentence_extractor,
     unit_detector,
-    vocabulary_extractor,
 )
 
 PARSE_STATUS_LABELS = {
@@ -67,6 +67,7 @@ class JobService:
         result_repo: ResultRepository,
         review_repo: ReviewRepository,
         export_repo: ExportRepository,
+        unit_content_generator: UnitContentGenerator | None = None,
     ):
         self.upload_dir = upload_dir
         self.export_dir = export_dir
@@ -74,6 +75,7 @@ class JobService:
         self.result_repo = result_repo
         self.review_repo = review_repo
         self.export_repo = export_repo
+        self.unit_content_generator = unit_content_generator or UnitContentGenerator(get_settings())
 
     def create_job(self, file_name: str, content: bytes) -> ParseJob:
         job_id = f"job_{uuid4().hex[:10]}"
@@ -100,37 +102,73 @@ class JobService:
         job = self.get_job(job_id)
         return JobStatusResponse(**job.model_dump())
 
+    def delete_job(self, job_id: str) -> dict:
+        job = self.get_job(job_id)
+        if job.status in {ParseStatus.parsing, ParseStatus.structuring, ParseStatus.generating}:
+            raise AppError("JOB_BUSY", "job is currently processing", status_code=409)
+
+        self.result_repo.delete(job_id)
+        self.review_repo.delete(job_id)
+        self.export_repo.delete_exports_for_job(job_id)
+        self.job_repo.delete(job_id)
+        with contextlib.suppress(FileNotFoundError):
+            Path(job.file_path).unlink()
+        return {"job_id": job_id, "deleted": True}
+
     def start_parse(self, job_id: str, force_reparse: bool = False) -> ParseJob:
         job = self.get_job(job_id)
         if job.status not in {ParseStatus.uploaded, ParseStatus.failed, ParseStatus.completed} and not force_reparse:
             raise AppError("INVALID_REQUEST", "job is already processing", status_code=400)
 
-        job.status = ParseStatus.parsing
-        job.progress = 10
-        self.job_repo.save(job)
+        job.error_message = None
+        job.finished_at = None
 
-        document = pdf_loader.load_pdf(Path(job.file_path))
-        document = ocr_processor.process(document)
-        document = layout_analyzer.analyze(document)
-        units = unit_detector.detect(document)
-        units = section_classifier.classify(document, units)
+        try:
+            job.status = ParseStatus.parsing
+            job.progress = 10
+            self.job_repo.save(job)
 
-        job.status = ParseStatus.structuring
-        job.progress = 45
-        self.job_repo.save(job)
+            def update_ocr_progress(processed_pages: int, total_pages: int) -> None:
+                if total_pages <= 0:
+                    return
+                next_progress = min(35, 10 + int(25 * processed_pages / total_pages))
+                if next_progress <= job.progress:
+                    return
+                job.progress = next_progress
+                self.job_repo.save(job)
 
-        result = self._build_result(job, document, units)
-        self.result_repo.save(job_id, result)
-        self.review_repo.save(job_id, result["review_records"])
+            document = pdf_loader.load_pdf(Path(job.file_path))
+            document = ocr_processor.process(document, progress_callback=update_ocr_progress)
+            document = layout_analyzer.analyze(document)
+            units = unit_detector.detect(document)
+            units = section_classifier.classify(document, units)
 
-        job.status = ParseStatus.reviewing
-        job.progress = 100
-        job.finished_at = _now_iso()
-        self.job_repo.save(job)
+            job.status = ParseStatus.structuring
+            job.progress = 45
+            self.job_repo.save(job)
 
-        result["job"] = job.model_dump(mode="json")
-        self.result_repo.save(job_id, result)
-        return job
+            job.status = ParseStatus.generating
+            job.progress = 70
+            self.job_repo.save(job)
+
+            result = self._build_result(job, document, units)
+            self.result_repo.save(job_id, result)
+            self.review_repo.save(job_id, result["review_records"])
+
+            job.status = ParseStatus.reviewing
+            job.progress = 100
+            job.finished_at = _now_iso()
+            self.job_repo.save(job)
+
+            result["job"] = job.model_dump(mode="json")
+            self.result_repo.save(job_id, result)
+            return job
+        except Exception as exc:
+            job.status = ParseStatus.failed
+            job.error_message = str(exc)
+            job.finished_at = _now_iso()
+            self.job_repo.save(job)
+            raise
 
     def _build_result(self, job: ParseJob, document: dict, units: list[dict]) -> dict:
         textbook_version = self._infer_textbook_version(job.file_name)
@@ -162,19 +200,7 @@ class JobService:
                 confidence=0.5,
                 review_status=ReviewStatus.pending,
             )
-            raw_vocab = vocabulary_extractor.extract(raw_unit)
-            raw_patterns = sentence_extractor.extract(raw_unit)
-            raw_dialogue = dialogue_extractor.extract(raw_unit)
-            unit_packages.append(
-                UnitPackage(
-                    unit=unit_record,
-                    vocabulary=vocabulary_generator.generate(classification, raw_vocab, unit_id),
-                    sentence_patterns=sentence_generator.generate(classification, raw_patterns, unit_id),
-                    dialogue_samples=dialogue_generator.generate(classification, raw_dialogue, unit_id),
-                    unit_task=task_generator.generate(classification, unit_id),
-                    unit_prompt=prompt_generator.generate(classification, unit_id),
-                )
-            )
+            unit_packages.append(self.unit_content_generator.build_unit_package(unit_record, raw_unit))
         payload = StructuredContent(
             job=job.model_dump(mode="json"),
             book=book,
@@ -336,7 +362,7 @@ class JobService:
                 },
                 {
                     "title": "导出交付",
-                    "description": "按审核状态导出 JSON 或 Markdown，形成可下载结果文件。",
+                    "description": "按审核状态导出 JSON、Markdown 或 Excel，形成可下载结果文件。",
                     "surface": "导出 API",
                     "endpoint": "/api/v1/export",
                 },
@@ -345,6 +371,8 @@ class JobService:
 
     def export_result(self, request: ExportRequest) -> dict:
         payload = self.get_result(request.job_id, approved_only=False, include_review_records=True)
+        if request.unit_ids:
+            payload = self._filter_payload_by_unit_ids(payload, request.unit_ids)
         if request.approved_only:
             blocked = self._collect_non_approved(payload)
             if blocked:
@@ -358,10 +386,16 @@ class JobService:
 
         export_id = f"exp_{uuid4().hex[:10]}"
         output_path = self.export_dir / f"{export_id}.{request.format}"
+        payload["export_meta"]["export_scope"] = request.export_scope or ("units" if request.unit_ids else "book")
+        payload["export_meta"]["approved_only"] = request.approved_only
+        payload["export_meta"]["unit_ids"] = [package["unit"]["unit_id"] for package in payload["units"]]
+        payload["export_meta"]["exported_at"] = _now_iso()
         if request.format == "json":
             export_json(payload, output_path)
         elif request.format == "markdown":
             export_markdown(payload, output_path)
+        elif request.format == "xlsx":
+            export_xlsx(payload, output_path)
         else:
             raise AppError("INVALID_REQUEST", "unsupported export format", status_code=400)
 
@@ -406,6 +440,24 @@ class JobService:
             filtered["units"].append(cloned)
         filtered["review_records"] = [
             record for record in filtered["review_records"] if record["review_status"] == ReviewStatus.approved.value
+        ]
+        return filtered
+
+    def _filter_payload_by_unit_ids(self, payload: dict, unit_ids: list[str]) -> dict:
+        filtered = deepcopy(payload)
+        selected = [unit_package for unit_package in filtered["units"] if unit_package["unit"]["unit_id"] in set(unit_ids)]
+        if unit_ids and not selected:
+            raise AppError("UNIT_NOT_FOUND", "unit_id does not exist", status_code=404)
+        filtered["units"] = selected
+        visible_target_ids = {target["book_id"] for target in [filtered["book"]]}
+        for target in self._iter_review_targets(filtered):
+            visible_target_ids.update(
+                target.get(key)
+                for key in ["unit_id", "item_id", "book_id"]
+                if target.get(key)
+            )
+        filtered["review_records"] = [
+            record for record in filtered.get("review_records", []) if record.get("target_id") in visible_target_ids
         ]
         return filtered
 

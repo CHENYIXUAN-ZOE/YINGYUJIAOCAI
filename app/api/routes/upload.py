@@ -11,6 +11,10 @@ from app.services.job_service import JobService
 router = APIRouter(tags=["upload"])
 
 
+def _bytes_to_mb(value: int) -> float:
+    return round(value / 1024 / 1024, 2)
+
+
 @router.post("/upload", response_model=ApiResponse)
 async def upload_pdf(
     file: UploadFile = File(...),
@@ -23,6 +27,15 @@ async def upload_pdf(
         raise AppError("UNSUPPORTED_FILE_TYPE", "only pdf files are supported", status_code=400)
     content = await file.read()
     if len(content) > settings.max_upload_size_mb * 1024 * 1024:
-        raise AppError("FILE_TOO_LARGE", "file exceeds size limit", status_code=400)
+        raise AppError(
+            "FILE_TOO_LARGE",
+            f"file exceeds size limit ({settings.max_upload_size_mb} MB)",
+            status_code=400,
+            details={
+                "file_name": file.filename,
+                "limit_mb": settings.max_upload_size_mb,
+                "actual_mb": _bytes_to_mb(len(content)),
+            },
+        )
     job = service.create_job(file.filename, content)
     return ApiResponse(data=job.model_dump(mode="json"))

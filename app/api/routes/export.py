@@ -23,8 +23,13 @@ def export_result(
 @router.get("/export/{export_id}/download")
 def download_export(export_id: str, service: JobService = Depends(get_job_service)):
     metadata = service.get_export_metadata(export_id)
+    media_type = {
+        "json": "application/json",
+        "markdown": "text/markdown; charset=utf-8",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }.get(metadata["format"], "application/octet-stream")
     return FileResponse(
         path=metadata["file_path"],
         filename=f"{export_id}.{metadata['format']}",
-        media_type="application/octet-stream",
+        media_type=media_type,
     )
