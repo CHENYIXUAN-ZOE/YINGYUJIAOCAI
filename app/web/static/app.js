@@ -92,6 +92,41 @@ function buildJobLinks(jobId) {
   `;
 }
 
+function getPreflightTypeLabel(preflight) {
+  const detectedType = preflight?.detected_pdf_type;
+  if (detectedType === "text") {
+    return "文字层 PDF";
+  }
+  if (detectedType === "mixed") {
+    return "混合 PDF";
+  }
+  if (detectedType === "scan") {
+    return "扫描版 PDF";
+  }
+  return "未识别";
+}
+
+function buildPreflightDetails(preflight) {
+  if (!preflight) {
+    return [];
+  }
+  const details = [];
+  if (Number.isFinite(preflight.file_size_mb) && preflight.file_size_mb > 0) {
+    details.push(`大小 ${preflight.file_size_mb} MB`);
+  }
+  if (Number.isFinite(preflight.page_count) && preflight.page_count > 0) {
+    details.push(`页数 ${preflight.page_count}`);
+  }
+  details.push(`类型 ${getPreflightTypeLabel(preflight)}`);
+  if (preflight.estimated_duration_range) {
+    details.push(`预估 ${preflight.estimated_duration_range}`);
+  }
+  if (preflight.within_duration_budget === false && Number.isFinite(preflight.duration_budget_sec)) {
+    details.push(`可能超过 ${Math.round(preflight.duration_budget_sec / 60)} 分钟`);
+  }
+  return details;
+}
+
 function renderJobSnapshot(job, detail) {
   const progressDetails = [];
   if (job.phase_label || job.phase) {
@@ -109,6 +144,7 @@ function renderJobSnapshot(job, detail) {
   if (job.retryable) {
     progressDetails.push("可重试");
   }
+  const preflightDetails = buildPreflightDetails(job.preflight);
 
   return `
     <div class="info-grid">
@@ -129,6 +165,12 @@ function renderJobSnapshot(job, detail) {
       </article>
     </div>
     ${detail ? `<p class="meta-text">${escapeHtml(detail)}</p>` : ""}
+    ${preflightDetails.length ? `<p class="meta-text">预检 ${escapeHtml(preflightDetails.join(" · "))}</p>` : ""}
+    ${
+      Array.isArray(job.preflight?.warnings) && job.preflight.warnings.length
+        ? `<p class="meta-text">${escapeHtml(job.preflight.warnings.join(" "))}</p>`
+        : ""
+    }
     ${job.phase_message ? `<p class="meta-text">${escapeHtml(job.phase_message)}</p>` : ""}
     ${job.last_error_code ? `<p class="meta-text">错误码：${escapeHtml(job.last_error_code)}</p>` : ""}
     ${job.error_message ? `<div class="inline-error">${escapeHtml(job.error_message)}</div>` : ""}
@@ -882,7 +924,7 @@ async function initIndexPage() {
     const formData = new FormData();
     formData.append("file", file);
     setText("upload-stage", "正在上传并创建任务...");
-    setHtml("upload-summary", '<div class="loading-state">文件上传成功后会自动发起解析和结构化生成，请稍候。</div>');
+    setHtml("upload-summary", '<div class="loading-state">文件上传成功后会先完成 PDF 预检，再进入后台解析与结构化生成。</div>');
     setHtml("upload-links", "");
 
     try {
@@ -890,8 +932,8 @@ async function initIndexPage() {
         method: "POST",
         body: formData,
       });
-      setText("upload-stage", "上传完成，正在解析并生成结构化内容...");
-      setHtml("upload-summary", renderJobSnapshot(job, "任务已创建，正在进入解析与生成阶段。"));
+      setText("upload-stage", "上传完成，正在读取预检结果...");
+      setHtml("upload-summary", renderJobSnapshot(job, "任务已创建，已完成 PDF 预检，正在准备进入后台解析。"));
       setHtml("upload-links", buildJobLinks(job.job_id));
 
       const queuedJob = await postJson(`${APP_CONFIG.apiPrefix}/parse/${encodeURIComponent(job.job_id)}`, {

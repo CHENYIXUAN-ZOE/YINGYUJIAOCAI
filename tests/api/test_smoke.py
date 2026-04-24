@@ -7,6 +7,7 @@ from app.repositories.export_repo import ExportRepository
 from app.repositories.job_repo import JobRepository
 from app.repositories.result_repo import ResultRepository
 from app.repositories.review_repo import ReviewRepository
+from app.schemas.job import PdfPreflight
 from app.services.job_service import JobService
 
 
@@ -111,6 +112,34 @@ def test_upload_returns_file_size_details(monkeypatch):
     payload = response.json()
     assert payload["error"]["code"] == "FILE_TOO_LARGE"
     assert payload["error"]["details"]["limit_mb"] == 1
+
+
+def test_upload_returns_preflight_summary(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.job_service.pdf_preflight.analyze_pdf",
+        lambda _path: PdfPreflight(
+            file_size_mb=4.2,
+            page_count=32,
+            text_layer_detected=True,
+            detected_pdf_type="text",
+            estimated_duration_sec=240,
+            estimated_duration_range="4 分钟 - 6 分钟",
+            duration_budget_sec=600,
+            within_duration_budget=True,
+            warnings=[],
+        ),
+    )
+
+    response = client.post(
+        "/api/v1/upload",
+        files={"file": ("sample.pdf", b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["preflight"]["page_count"] == 32
+    assert payload["preflight"]["detected_pdf_type"] == "text"
+    assert payload["preflight"]["estimated_duration_range"] == "4 分钟 - 6 分钟"
 
 
 class BrokenJobService:

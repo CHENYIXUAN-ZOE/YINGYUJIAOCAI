@@ -113,7 +113,7 @@
                 <p class="eyebrow">Upload & Parse</p>
                 <h2>上传教材 PDF 并启动整本书处理</h2>
               </div>
-              <p class="section-note">上传成功后会自动创建任务并进入“解析 → 结构化 → 生成”链路，工作台会自动切到当前任务。</p>
+              <p class="section-note">上传成功后会先做 PDF 预检，显示页数、扫描版识别和预计耗时，再进入“解析 → 结构化 → 生成”链路。</p>
             </div>
             <form id="upload-form" class="upload-form">
               <label class="field">
@@ -258,7 +258,7 @@
         initialView: "{{ initial_view }}"
       };
     </script>
-    <script src="/static/app.js?v=20260424a"></script>
-    <script src="/static/workspace.js?v=20260424a"></script>
+    <script src="/static/app.js?v=20260424b"></script>
+    <script src="/static/workspace.js?v=20260424b"></script>
   </body>
 </html>

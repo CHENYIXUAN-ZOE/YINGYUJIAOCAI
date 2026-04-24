@@ -870,7 +870,7 @@ function bindWorkspaceEvents() {
     const formData = new FormData();
     formData.append("file", file);
     setText("upload-stage", "正在上传并创建任务...");
-    setHtml("upload-summary", '<div class="loading-state">上传成功后，系统会自动开始整本教材解析，请稍候。</div>');
+    setHtml("upload-summary", '<div class="loading-state">上传成功后，系统会先完成 PDF 预检，再启动整本教材解析。</div>');
     setHtml("upload-links", "");
     setWorkspaceFeedback("正在上传教材并创建任务...");
 
@@ -883,8 +883,8 @@ function bindWorkspaceEvents() {
       workspaceState.job = job;
       updateSidebarCurrentJob(job);
       switchWorkspaceView("status");
-      setText("upload-stage", "上传完成，正在进入解析链路...");
-      setHtml("upload-summary", renderJobSnapshot(job, "任务已创建，工作台会自动轮询当前处理进度。"));
+      setText("upload-stage", "上传完成，正在读取预检结果...");
+      setHtml("upload-summary", renderJobSnapshot(job, "任务已创建，已完成 PDF 预检，工作台会自动轮询当前处理进度。"));
       setHtml(
         "upload-links",
         `

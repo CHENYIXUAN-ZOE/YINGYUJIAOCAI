@@ -1,8 +1,20 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import ParseStatus, ReviewStatus
+
+
+class PdfPreflight(BaseModel):
+    file_size_mb: float = 0
+    page_count: int = 0
+    text_layer_detected: bool = False
+    detected_pdf_type: str = "unknown"
+    estimated_duration_sec: int = 0
+    estimated_duration_range: str | None = None
+    duration_budget_sec: int = 600
+    within_duration_budget: bool = True
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ParseJob(BaseModel):
@@ -26,6 +38,7 @@ class ParseJob(BaseModel):
     finished_at: str | None = None
     updated_at: str | None = None
     review_status: ReviewStatus
+    preflight: PdfPreflight = Field(default_factory=PdfPreflight)
 
 
 class ParseRequest(BaseModel):
@@ -54,3 +67,4 @@ class JobStatusResponse(BaseModel):
     started_at: str | None = None
     finished_at: str | None = None
     updated_at: str | None = None
+    preflight: PdfPreflight = Field(default_factory=PdfPreflight)
