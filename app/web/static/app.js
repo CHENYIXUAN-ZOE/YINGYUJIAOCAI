@@ -924,7 +924,7 @@ async function initIndexPage() {
     const formData = new FormData();
     formData.append("file", file);
     setText("upload-stage", "正在上传并创建任务...");
-    setHtml("upload-summary", '<div class="loading-state">文件上传成功后会自动发起解析和结构化生成，请稍候。</div>');
+    setHtml("upload-summary", '<div class="loading-state">文件上传成功后会先完成 PDF 预检，再进入后台解析与结构化生成。</div>');
     setHtml("upload-links", "");
 
     try {
@@ -932,8 +932,8 @@ async function initIndexPage() {
         method: "POST",
         body: formData,
       });
-      setText("upload-stage", "上传完成，正在解析并生成结构化内容...");
-      setHtml("upload-summary", renderJobSnapshot(job, "任务已创建，正在进入解析与生成阶段。"));
+      setText("upload-stage", "上传完成，正在读取预检结果...");
+      setHtml("upload-summary", renderJobSnapshot(job, "任务已创建，已完成 PDF 预检，正在准备进入后台解析。"));
       setHtml("upload-links", buildJobLinks(job.job_id));
 
       const queuedJob = await postJson(`${APP_CONFIG.apiPrefix}/parse/${encodeURIComponent(job.job_id)}`, {

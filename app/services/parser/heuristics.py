@@ -23,6 +23,42 @@ SECTION_TITLES = {
     "conversation",
 }
 
+SECTION_KEYWORDS = {
+    "vocabulary": (
+        "word",
+        "words",
+        "new word",
+        "new words",
+        "vocabulary",
+        "word box",
+        "词汇",
+        "单词",
+    ),
+    "sentence_patterns": (
+        "sentence",
+        "sentences",
+        "pattern",
+        "patterns",
+        "key sentence",
+        "key sentences",
+        "useful sentence",
+        "useful sentences",
+        "句型",
+        "重点句型",
+    ),
+    "dialogue_samples": (
+        "dialogue",
+        "dialog",
+        "conversation",
+        "listen and say",
+        "read and act",
+        "let's talk",
+        "lets talk",
+        "talk together",
+        "对话",
+    ),
+}
+
 STOPWORDS = {
     "a",
     "an",
@@ -143,8 +179,28 @@ def strip_trailing_page_number(text: str) -> str:
     return normalize_line(re.sub(r"\s+[0-9]{1,3}$", "", normalized))
 
 
+def canonicalize_repeat_line(text: str) -> str:
+    normalized = strip_trailing_page_number(text)
+    normalized = re.sub(r"[^A-Za-z0-9\u4e00-\u9fff ]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip().casefold()
+    return normalized
+
+
 def is_appendix_title(line: str) -> bool:
     return bool(APPENDIX_TITLE_PATTERN.search(normalize_unit_header_candidate(line)))
+
+
+def classify_section_heading(line: str) -> str | None:
+    normalized = strip_trailing_page_number(normalize_unit_header_candidate(line))
+    lowered = normalized.casefold()
+    compact = re.sub(r"[^a-z\u4e00-\u9fff ]+", " ", lowered)
+    compact = re.sub(r"\s+", " ", compact).strip()
+    if not compact or len(compact.split()) > 6:
+        return None
+    for section_name, keywords in SECTION_KEYWORDS.items():
+        if any(keyword in compact for keyword in keywords):
+            return section_name
+    return None
 
 
 def strip_section_label(line: str) -> tuple[str | None, str]:
@@ -192,6 +248,33 @@ def parse_speaker_line(line: str) -> tuple[str, str] | None:
         return None
     speaker, content = match.groups()
     return speaker, normalize_line(content)
+
+
+def looks_like_sentence_pattern(line: str) -> bool:
+    normalized = normalize_line(line)
+    english_tokens = extract_english_tokens(normalized)
+    if not english_tokens or len(english_tokens) > 14:
+        return False
+    lowered = normalized.lower()
+    return (
+        normalized.endswith("?")
+        or normalized.endswith("!")
+        or "..." in normalized
+        or lowered.startswith(("what", "who", "where", "how", "when", "can", "do", "does", "is", "are"))
+        or lowered.startswith(("this is", "that is", "i am", "we are", "he is", "she is", "let's", "lets"))
+    )
+
+
+def looks_like_vocabulary_entry(line: str) -> bool:
+    normalized = normalize_line(line)
+    if not normalized or normalized.endswith("?"):
+        return False
+    if POS_TAG_PATTERN.search(normalized):
+        return True
+    english_tokens = extract_english_tokens(normalized)
+    if not english_tokens or len(english_tokens) > 4:
+        return False
+    return len(normalized.split()) <= 6 and all(len(token) <= 20 for token in english_tokens)
 
 
 def infer_usage_note(pattern: str) -> str:

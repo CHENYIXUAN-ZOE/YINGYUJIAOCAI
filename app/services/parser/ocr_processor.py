@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -14,6 +15,7 @@ from app.services.parser.heuristics import normalize_line
 
 _RENDERED_PAGE_PATTERN = re.compile(r"page-(\d+)\.png$")
 _PAGE_COUNT_PATTERN = re.compile(r"^Pages:\s+(\d+)\s*$", re.MULTILINE)
+_OCR_CACHE_VERSION = "v1"
 _OCR_RESPONSE_SCHEMA = {
     "type": "OBJECT",
     "properties": {
@@ -195,6 +197,7 @@ def _extract_page_texts_with_gemini(document: dict, settings: Settings, progress
     batch_size = max(1, min(settings.ocr_page_batch_size, 4))
     render_dpi = max(120, min(settings.ocr_render_dpi, 240))
     max_attempts = max(1, settings.gemini_max_retries)
+    cache_namespace = _build_ocr_cache_namespace(file_path, settings, render_dpi)
     credentials = service_account.Credentials.from_service_account_file(
         str(credentials_path),
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
@@ -211,8 +214,12 @@ def _extract_page_texts_with_gemini(document: dict, settings: Settings, progress
     try:
         for page_start in range(1, page_count + 1, batch_size):
             page_end = min(page_start + batch_size - 1, page_count)
-            rendered_pages = _render_page_images(file_path, settings, page_start, page_end, render_dpi)
-            page_texts.extend(_ocr_page_batch(client, types, genai_errors, settings, rendered_pages, max_attempts))
+            cached_batch = _load_cached_ocr_batch(settings, cache_namespace, page_start, page_end)
+            if cached_batch is None:
+                rendered_pages = _render_page_images(file_path, settings, page_start, page_end, render_dpi)
+                cached_batch = _ocr_page_batch(client, types, genai_errors, settings, rendered_pages, max_attempts)
+                _save_cached_ocr_batch(settings, cache_namespace, page_start, page_end, cached_batch)
+            page_texts.extend(cached_batch)
             if progress_callback:
                 progress_callback(page_end, page_count)
     finally:
@@ -276,6 +283,64 @@ def _render_page_images(
             )
         rendered_pages.append({"page_num": page_num, "image_bytes": image_bytes})
     return rendered_pages
+
+
+def _build_ocr_cache_namespace(file_path: Path, settings: Settings, render_dpi: int) -> str:
+    stat = file_path.stat()
+    fingerprint = "|".join(
+        [
+            _OCR_CACHE_VERSION,
+            str(file_path.resolve()),
+            str(stat.st_size),
+            str(stat.st_mtime_ns),
+            settings.gemini_ocr_model,
+            str(render_dpi),
+        ]
+    )
+    return hashlib.sha1(fingerprint.encode("utf-8")).hexdigest()
+
+
+def _ocr_cache_path(settings: Settings, namespace: str, page_start: int, page_end: int) -> Path:
+    return settings.resolve_ocr_cache_dir() / namespace / f"pages-{page_start:04d}-{page_end:04d}.json"
+
+
+def _load_cached_ocr_batch(settings: Settings, namespace: str, page_start: int, page_end: int) -> list[str] | None:
+    cache_path = _ocr_cache_path(settings, namespace, page_start, page_end)
+    if not cache_path.exists():
+        return None
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        cache_path.unlink(missing_ok=True)
+        return None
+
+    texts = payload.get("texts")
+    expected_pages = page_end - page_start + 1
+    if not isinstance(texts, list) or len(texts) != expected_pages:
+        cache_path.unlink(missing_ok=True)
+        return None
+    normalized = [str(item or "") for item in texts]
+    if not any(text.strip() for text in normalized):
+        cache_path.unlink(missing_ok=True)
+        return None
+    return normalized
+
+
+def _save_cached_ocr_batch(
+    settings: Settings,
+    namespace: str,
+    page_start: int,
+    page_end: int,
+    texts: list[str],
+) -> None:
+    cache_path = _ocr_cache_path(settings, namespace, page_start, page_end)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "page_start": page_start,
+        "page_end": page_end,
+        "texts": [str(item or "") for item in texts],
+    }
+    cache_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _ocr_page_batch(client, types, genai_errors, settings: Settings, rendered_pages: list[dict], max_attempts: int) -> list[str]:

@@ -82,6 +82,11 @@ class Settings(BaseModel):
             return candidate
         return None
 
+    def resolve_ocr_cache_dir(self) -> Path:
+        cache_dir = self.temp_dir / "ocr_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir
+
 
 def _load_env_file(path: Path) -> None:
     if not path.exists():

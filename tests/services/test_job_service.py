@@ -50,11 +50,16 @@ def build_settings(tmp_path) -> Settings:
 
 
 class StubUnitContentGenerator:
-    def __init__(self, should_fail: bool = False):
+    def __init__(self, should_fail: bool = False, fail_on_calls: set[int] | None = None):
         self.should_fail = should_fail
+        self.fail_on_calls = set(fail_on_calls or set())
+        self.calls: list[str] = []
 
     def build_unit_package(self, unit_record: UnitRecord, raw_unit: dict) -> UnitPackage:
-        if self.should_fail:
+        self.calls.append(unit_record.unit_id)
+        call_index = len(self.calls)
+        if self.should_fail or call_index in self.fail_on_calls:
+            self.fail_on_calls.discard(call_index)
             raise AppError("GEMINI_REQUEST_FAILED", "boom", status_code=502)
         classification: Classification = unit_record.classification
         unit_id = unit_record.unit_id
@@ -146,13 +151,14 @@ def build_service(settings: Settings, generator: StubUnitContentGenerator) -> Jo
     )
 
 
-def patch_parse_pipeline(monkeypatch):
+def patch_parse_pipeline(monkeypatch, units: list[dict] | None = None):
     monkeypatch.setattr("app.services.job_service.pdf_loader.load_pdf", lambda _: {"stem": "sample", "lines": []})
     monkeypatch.setattr("app.services.job_service.ocr_processor.process", lambda doc, progress_callback=None: doc)
     monkeypatch.setattr("app.services.job_service.layout_analyzer.analyze", lambda doc: doc)
     monkeypatch.setattr(
         "app.services.job_service.unit_detector.detect",
-        lambda doc: [
+        lambda doc: units
+        or [
             {
                 "unit_code": "Unit 1",
                 "unit_name": "My Family",
@@ -334,3 +340,78 @@ def test_recover_incomplete_jobs_marks_processing_jobs_failed(tmp_path):
     assert recovered_job.last_error_code == "JOB_RECOVERED_AFTER_RESTART"
     assert recovered_job.retryable is True
     assert "未完成" in (recovered_job.error_message or "")
+
+
+def test_retry_after_generation_failure_reuses_completed_units(tmp_path, monkeypatch):
+    settings = build_settings(tmp_path)
+    units = [
+        {
+            "unit_code": "Unit 1",
+            "unit_name": "My Family",
+            "unit_theme": "My Family",
+            "source_pages": [1],
+            "text": "Who is he? He is my father.",
+        },
+        {
+            "unit_code": "Unit 2",
+            "unit_name": "My School",
+            "unit_theme": "My School",
+            "source_pages": [2],
+            "text": "This is my school.",
+        },
+    ]
+    patch_parse_pipeline(monkeypatch, units=units)
+    generator = StubUnitContentGenerator(fail_on_calls={2})
+    service = build_service(settings, generator)
+
+    job = service.create_job("sample.pdf", b"%PDF-1.4")
+
+    with pytest.raises(AppError):
+        service.start_parse(job.job_id)
+
+    failed_job = service.get_job(job.job_id)
+    assert failed_job.status == ParseStatus.failed
+    partial_payload = service.result_repo.get(job.job_id)
+    assert partial_payload is not None
+    assert len(partial_payload["units"]) == 1
+    assert generator.calls == [f"{job.job_id}_unit_1", f"{job.job_id}_unit_2"]
+
+    retried_job = service.start_parse(job.job_id)
+
+    assert retried_job.status == ParseStatus.reviewing
+    final_payload = service.get_result(job.job_id)
+    assert len(final_payload["units"]) == 2
+    assert generator.calls == [f"{job.job_id}_unit_1", f"{job.job_id}_unit_2", f"{job.job_id}_unit_2"]
+
+
+def test_overview_hides_partial_result_from_failed_job(tmp_path, monkeypatch):
+    settings = build_settings(tmp_path)
+    units = [
+        {
+            "unit_code": "Unit 1",
+            "unit_name": "My Family",
+            "unit_theme": "My Family",
+            "source_pages": [1],
+            "text": "Who is he? He is my father.",
+        },
+        {
+            "unit_code": "Unit 2",
+            "unit_name": "My School",
+            "unit_theme": "My School",
+            "source_pages": [2],
+            "text": "This is my school.",
+        },
+    ]
+    patch_parse_pipeline(monkeypatch, units=units)
+    service = build_service(settings, StubUnitContentGenerator(fail_on_calls={2}))
+
+    job = service.create_job("sample.pdf", b"%PDF-1.4")
+
+    with pytest.raises(AppError):
+        service.start_parse(job.job_id)
+
+    overview = service.get_overview()
+
+    assert overview["summary"]["jobs_with_results"] == 0
+    recent_job = overview["recent_jobs"][0]
+    assert recent_job["has_result"] is False
