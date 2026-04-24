@@ -46,6 +46,12 @@ def process(document: dict, progress_callback=None) -> dict:
     settings = get_settings()
     _rebuild_document_text(document, document.get("page_texts") or [])
 
+    if _should_use_embedded_text(document):
+        document["ocr_used"] = False
+        document["ocr_backend"] = document.get("extractor") or "pdf_text"
+        document["page_count"] = _resolve_page_count(document)
+        return document
+
     if not _ocr_api_ready(settings):
         document["ocr_used"] = False
         document["ocr_backend"] = document.get("extractor") or "pdf_text"
@@ -90,6 +96,12 @@ def _rebuild_document_text(document: dict, page_texts: list[str]) -> dict:
     document["lines"] = lines
     document["text"] = "\n".join(normalized_page_texts)
     return document
+
+
+def _should_use_embedded_text(document: dict) -> bool:
+    if document.get("extractor") != "pdftotext":
+        return False
+    return any(str(page_text or "").strip() for page_text in document.get("page_texts") or [])
 
 
 def _ocr_api_ready(settings: Settings) -> bool:
