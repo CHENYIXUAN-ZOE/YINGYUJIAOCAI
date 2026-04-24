@@ -123,6 +123,38 @@ def test_process_prefers_embedded_text_layer_when_pdftotext_succeeds(tmp_path, m
     ]
 
 
+def test_process_uses_ocr_when_embedded_text_layer_is_low_quality(tmp_path, monkeypatch):
+    credentials_path = tmp_path / "creds.json"
+    credentials_path.write_text(json.dumps({"project_id": "demo-project"}), encoding="utf-8")
+    settings = build_settings(tmp_path, credentials_path=credentials_path)
+    monkeypatch.setattr(ocr_processor, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        ocr_processor,
+        "_extract_page_texts_with_gemini",
+        lambda document, active_settings, progress_callback=None: [
+            "Unit 1 Signs\nLesson 1\nDon't walk.",
+        ],
+    )
+
+    document = {
+        "file_path": str(tmp_path / "sample.pdf"),
+        "extractor": "pdftotext",
+        "page_texts": ["@@@ ### ===\n12345\n:::\n" * 20],
+    }
+
+    result = ocr_processor.process(document)
+
+    assert result["ocr_used"] is True
+    assert result["ocr_backend"] == "gemini_page_ocr"
+    assert result["page_count"] == 1
+    assert result["page_lines"] == [
+        {"page_num": 1, "line": "Unit 1 Signs"},
+        {"page_num": 1, "line": "Lesson 1"},
+        {"page_num": 1, "line": "Don't walk."},
+    ]
+    assert result["text_layer_page_texts"] == ["@@@ ### ===\n12345\n:::\n" * 20]
+
+
 def test_process_rebuilds_document_from_gemini_ocr_output(tmp_path, monkeypatch):
     credentials_path = tmp_path / "creds.json"
     credentials_path.write_text(json.dumps({"project_id": "demo-project"}), encoding="utf-8")

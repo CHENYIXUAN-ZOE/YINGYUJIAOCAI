@@ -37,3 +37,21 @@ def test_analyze_pdf_marks_scan_pdf_as_over_budget(tmp_path, monkeypatch):
     assert result.within_duration_budget is False
     assert any("扫描版" in warning for warning in result.warnings)
     assert any("10 分钟" in warning for warning in result.warnings)
+
+
+def test_analyze_pdf_marks_weak_text_layer_as_mixed(tmp_path, monkeypatch):
+    pdf_path = tmp_path / "weak-text.pdf"
+    pdf_path.write_bytes(b"x" * (12 * 1024 * 1024))
+
+    monkeypatch.setattr(pdf_preflight, "_read_page_count", lambda _: 40)
+    monkeypatch.setattr(
+        pdf_preflight,
+        "_extract_text_sample",
+        lambda *_args, **_kwargs: ("@@@ ### ===\n12345\n:::\n" * 20),
+    )
+
+    result = pdf_preflight.analyze_pdf(pdf_path)
+
+    assert result.detected_pdf_type == "mixed"
+    assert result.text_layer_detected is False
+    assert any("文字层较弱" in warning for warning in result.warnings)

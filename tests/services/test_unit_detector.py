@@ -66,3 +66,56 @@ def test_detect_uses_filtered_page_lines_for_body_headers():
     assert units[0]["source_pages"] == [2, 3]
     assert units[1]["unit_code"] == "Unit 2"
     assert units[1]["source_pages"] == [4, 5]
+
+
+def test_detect_binds_toc_page_numbers_from_neighbor_lines():
+    document = {
+        "stem": "sample",
+        "page_count": 70,
+        "page_lines": [
+            {"page_num": 3, "line": "2"},
+            {"page_num": 3, "line": "Unit 1 Signs"},
+            {"page_num": 3, "line": "Unit 2 Shopping 14"},
+            {"page_num": 3, "line": "Unit 3 Uncle Booky's Study 26"},
+            {"page_num": 3, "line": "Unit 4 Bobby's House"},
+            {"page_num": 3, "line": "="},
+            {"page_num": 3, "line": "38"},
+            {"page_num": 3, "line": "Unit 5 At School 50"},
+            {"page_num": 3, "line": "Unit 6 Review"},
+            {"page_num": 3, "line": ";"},
+            {"page_num": 3, "line": "62"},
+            {"page_num": 4, "line": "Lesson 1"},
+            {"page_num": 16, "line": "Let's go shopping."},
+            {"page_num": 28, "line": "Uncle Booky's Study"},
+            {"page_num": 40, "line": "This is Bobby's house."},
+            {"page_num": 52, "line": "Welcome to school."},
+            {"page_num": 64, "line": "Review"},
+        ],
+        "content_page_lines": [
+            {"page_num": 3, "line": "Unit 1 Signs"},
+            {"page_num": 3, "line": "Unit 2 Shopping 14"},
+            {"page_num": 3, "line": "Unit 3 Uncle Booky's Study 26"},
+            {"page_num": 3, "line": "Unit 4 Bobby's House"},
+            {"page_num": 3, "line": "Unit 5 At School 50"},
+            {"page_num": 3, "line": "Unit 6 Review"},
+            {"page_num": 4, "line": "Lesson 1"},
+            {"page_num": 16, "line": "Let's go shopping."},
+            {"page_num": 28, "line": "Uncle Booky's Study"},
+            {"page_num": 40, "line": "This is Bobby's house."},
+            {"page_num": 52, "line": "Welcome to school."},
+            {"page_num": 64, "line": "Review"},
+        ],
+    }
+
+    units = detect(document)
+
+    assert len(units) == 6
+    assert units[0]["unit_code"] == "Unit 1"
+    assert units[0]["unit_name"] == "Signs"
+    assert units[0]["source_pages"][0] == 4
+    assert units[1]["unit_code"] == "Unit 2"
+    assert units[1]["source_pages"][0] == 16
+    assert units[3]["unit_code"] == "Unit 4"
+    assert units[3]["source_pages"][0] == 40
+    assert units[5]["unit_code"] == "Unit 6"
+    assert units[5]["source_pages"][0] == 64

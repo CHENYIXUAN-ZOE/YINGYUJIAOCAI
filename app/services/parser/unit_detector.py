@@ -40,9 +40,10 @@ def _fallback_unit(stem: str, page_map: dict[int, list[str]]) -> list[dict]:
     ]
 
 
-def _group_page_lines(document: dict) -> dict[int, list[str]]:
+def _group_page_lines(document: dict, *, prefer_filtered: bool = True) -> dict[int, list[str]]:
     grouped: dict[int, list[str]] = defaultdict(list)
-    page_lines = document.get("content_page_lines") or document.get("page_lines") or []
+    page_lines_source = "content_page_lines" if prefer_filtered else "page_lines"
+    page_lines = document.get(page_lines_source) or document.get("page_lines") or []
     for item in page_lines:
         page_num = int(item.get("page_num", 1))
         line = normalize_line(item.get("line", ""))
@@ -62,18 +63,7 @@ def _scan_toc_entries(page_num: int, lines: list[str]) -> list[dict]:
         if not header:
             continue
         kind, code, name = header
-        printed_start_page = extract_printed_page_number(line)
-        if printed_start_page is None:
-            for offset in range(1, 3):
-                next_index = index + offset
-                if next_index >= len(lines):
-                    break
-                next_line = lines[next_index]
-                if looks_like_unit_header(next_line):
-                    break
-                printed_start_page = extract_printed_page_number(next_line)
-                if printed_start_page is not None:
-                    break
+        printed_start_page = _find_nearby_printed_page(lines, index)
         if printed_start_page is None:
             continue
         cleaned_name = strip_trailing_page_number(name or f"{kind} {code}")
@@ -95,6 +85,32 @@ def _scan_toc_entries(page_num: int, lines: list[str]) -> list[dict]:
         seen.add(key)
         deduped.append(entry)
     return deduped
+
+
+def _scan_direction_for_printed_page(lines: list[str], start_index: int, step: int, *, limit: int = 4) -> int | None:
+    for offset in range(1, limit + 1):
+        candidate_index = start_index + step * offset
+        if candidate_index < 0 or candidate_index >= len(lines):
+            break
+        candidate_line = lines[candidate_index]
+        if looks_like_unit_header(candidate_line):
+            break
+        printed_page = extract_printed_page_number(candidate_line)
+        if printed_page is not None:
+            return printed_page
+    return None
+
+
+def _find_nearby_printed_page(lines: list[str], index: int) -> int | None:
+    current_line_page = extract_printed_page_number(lines[index])
+    if current_line_page is not None:
+        return current_line_page
+
+    previous_line_page = _scan_direction_for_printed_page(lines, index, -1)
+    if previous_line_page is not None:
+        return previous_line_page
+
+    return _scan_direction_for_printed_page(lines, index, 1)
 
 
 def _toc_pages(page_map: dict[int, list[str]]) -> set[int]:
@@ -280,10 +296,12 @@ def _score_units(units: list[dict], num_pages: int, *, prefer_front_start: bool)
 
 def detect(document: dict) -> list[dict]:
     stem = document.get("stem", "教材")
-    page_map = _group_page_lines(document)
-    num_pages = document.get("page_count") or (max(page_map) if page_map else max(len(document.get("page_texts", [])), 1))
+    content_page_map = _group_page_lines(document, prefer_filtered=True)
+    raw_page_map = _group_page_lines(document, prefer_filtered=False)
+    page_map = content_page_map or raw_page_map
+    num_pages = document.get("page_count") or (max(raw_page_map or page_map) if (raw_page_map or page_map) else max(len(document.get("page_texts", [])), 1))
 
-    toc_units = _detect_toc_units(page_map, num_pages)
+    toc_units = _detect_toc_units(raw_page_map or page_map, num_pages)
     body_units = _detect_from_body(page_map)
 
     toc_score = _score_units(toc_units, num_pages, prefer_front_start=True)
