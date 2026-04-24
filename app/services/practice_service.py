@@ -997,14 +997,14 @@ class PracticeService:
                 ]
 
         if expected_move == "state_preference":
-            topic = self._detect_item_in_text(lowered_student, [str(item).lower() for item in vocabulary]) or self._first_non_empty(vocabulary) or "apples"
+            preference_example = self._preference_example(student_message, vocabulary)
             if actual_move == "keyword_only":
                 return [
                     self._build_tip(
                         tip_type="make_it_full",
                         title="这一步可以更像完整回答",
                         message_cn="如果是在表达喜好，可以直接把喜欢不喜欢说出来。",
-                        example_en=f"I like {topic}.",
+                        example_en=preference_example,
                         reason_cn="这样会更贴近“Do you like ...?” 这一类问答。",
                         expected_move=expected_move,
                         actual_move=actual_move,
@@ -1016,7 +1016,7 @@ class PracticeService:
                         tip_type="sound_more_natural",
                         title="这一步可以更自然",
                         message_cn="只说 yes / no 也可以，但再补半句会更像真实对话。",
-                        example_en=f"Yes, I do. I like {topic}.",
+                        example_en=f"Yes, I do. {preference_example}",
                         reason_cn="这样既完成判断，也顺手把喜好说清楚。",
                         expected_move=expected_move,
                         actual_move=actual_move,
@@ -1459,6 +1459,8 @@ class PracticeService:
         patterns = " | ".join(target_patterns).lower()
         if "what is your name" in prompt or "what's your name" in prompt:
             return "say_name"
+        if "favorite" in prompt or "favourite" in prompt:
+            return "state_preference"
         if "what will you do" in prompt or "what are you going to do" in prompt:
             return "state_plan"
         if "do you like" in prompt:
@@ -1487,6 +1489,8 @@ class PracticeService:
             return "keyword_only" if self._looks_like_incomplete_reply(text) else "other"
         if expected_move == "state_preference":
             if text.startswith("i like") or text.startswith("i don't like") or text.startswith("i do not like"):
+                return "on_track"
+            if text.startswith("my favorite") or text.startswith("my favourite"):
                 return "on_track"
             if self._is_yes_no_positive(text) or self._is_yes_no_negative(text):
                 return "yes_no_only"
@@ -1520,8 +1524,7 @@ class PracticeService:
         if expected_move == "state_plan":
             return self._weekend_plan_example(student_message, vocabulary)
         if expected_move == "state_preference":
-            topic = self._detect_item_in_text(student_message.lower(), [str(item).lower() for item in vocabulary]) or self._first_non_empty(vocabulary) or "apples"
-            return f"I like {topic}."
+            return self._preference_example(student_message, vocabulary)
         if expected_move == "give_location":
             return self._location_answer_example(target_patterns, vocabulary)
         if expected_move == "name_object":
@@ -1579,6 +1582,25 @@ class PracticeService:
                 if "..." not in pattern and "?" not in pattern:
                     return pattern
         return f"It is {article} {word}."
+
+    def _preference_example(self, student_message: str, vocabulary: list[str]) -> str:
+        lowered = student_message.lower()
+        topic = self._detect_item_in_text(lowered, [str(item).lower() for item in vocabulary]) or self._first_non_empty(vocabulary) or "apples"
+        cleaned = re.sub(r"[^a-z ]", " ", str(topic).lower()).strip()
+        words = [word for word in cleaned.split() if word]
+        if not words:
+            return "I like apples."
+        phrase = " ".join(self._pluralize_simple_noun(word) for word in words)
+        return f"I like {phrase}."
+
+    def _pluralize_simple_noun(self, word: str) -> str:
+        if not word:
+            return word
+        if word.endswith(("s", "x", "z", "ch", "sh")):
+            return f"{word}es"
+        if word.endswith("y") and len(word) > 1 and word[-2] not in "aeiou":
+            return f"{word[:-1]}ies"
+        return f"{word}s"
 
     def _tip_example_label(self, tip_type: str, optional_next_en: str) -> str:
         if tip_type == "next_step" and optional_next_en:
