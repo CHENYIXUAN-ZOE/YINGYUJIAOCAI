@@ -81,7 +81,9 @@ def test_build_unit_generation_prompt_contains_common_constraints():
 
     assert "只处理当前 classification 对应的单元" in prompt
     assert "不要输出解释、Markdown、代码块或额外字段" in prompt
-    assert "对话必须为 10-15 轮" in prompt
+    assert "证据充分时整理为 6-12 轮" in prompt
+    assert "不要为了凑轮次重复台词" in prompt
+    assert "不要把整句误写成说话人" in prompt
     assert "`grammar_rules` 输出 1-3 条" in prompt
     assert "目标 15-30 个中文字符" in prompt
     assert '"unit_name": "My Family"' in prompt
@@ -158,3 +160,85 @@ def test_build_unit_package_fallback_uses_real_extracted_content(tmp_path):
     assert "My School" in package.unit_task.task_intro
     assert package.unit_prompt.unit_theme == "My School"
     assert any("school" in basis.lower() for basis in package.unit_prompt.source_basis)
+
+
+def test_payload_to_unit_package_normalizes_dialogue_turns(tmp_path):
+    settings = build_settings(tmp_path)
+    generator = UnitContentGenerator(settings)
+    unit_record = UnitRecord(
+        unit_id="job_demo_unit_3",
+        classification=Classification(
+            textbook_version="北师大版",
+            textbook_name="北师大版英语 3B",
+            unit_code="Unit 7",
+            unit_name="Fruits",
+        ),
+        unit_theme="Fruits",
+        source_pages=[4, 5],
+    )
+
+    payload = {
+        "unit_theme": " Fruits ",
+        "vocabulary": [
+            {
+                "word": " banana ",
+                "part_of_speech": " n. ",
+                "meaning_zh": " 香蕉 ",
+                "example_sentences": [" It is a banana. "],
+                "source_excerpt": " Lesson 1 \n It's a banana. ",
+            }
+        ],
+        "sentence_patterns": [
+            {
+                "pattern": " Can you ...? ",
+                "usage_note": " 能力问答 ",
+                "examples": [" Can you jump? "],
+                "source_excerpt": " Can you jump? ",
+            }
+        ],
+        "dialogue_samples": [
+            {
+                "title": " Story Time ",
+                "source_excerpt": " A: Hello.\nB: Hi. ",
+                "turns": [
+                    {"speaker": " A ", "text_en": " Hello. ", "text_zh": " 你好。 "},
+                    {"speaker": " A ", "text_en": " Hello. ", "text_zh": " 你好。 "},
+                    {"speaker": " B ", "text_en": " Hi. ", "text_zh": " 嗨。 "},
+                    {"speaker": " C ", "text_en": f"Turn {3}", "text_zh": "第三句"},
+                    {"speaker": " C ", "text_en": f"Turn {4}", "text_zh": "第四句"},
+                    {"speaker": " C ", "text_en": f"Turn {5}", "text_zh": "第五句"},
+                    {"speaker": " C ", "text_en": f"Turn {6}", "text_zh": "第六句"},
+                    {"speaker": " C ", "text_en": f"Turn {7}", "text_zh": "第七句"},
+                    {"speaker": " C ", "text_en": f"Turn {8}", "text_zh": "第八句"},
+                    {"speaker": " C ", "text_en": f"Turn {9}", "text_zh": "第九句"},
+                    {"speaker": " C ", "text_en": f"Turn {10}", "text_zh": "第十句"},
+                    {"speaker": " C ", "text_en": f"Turn {11}", "text_zh": "第十一句"},
+                    {"speaker": " C ", "text_en": f"Turn {12}", "text_zh": "第十二句"},
+                    {"speaker": " C ", "text_en": f"Turn {13}", "text_zh": "第十三句"},
+                ],
+            }
+        ],
+        "unit_task": {
+            "task_intro": " 认识水果并进行问答 ",
+            "source_basis": [" Fruits ", " Can you...? "],
+        },
+        "unit_prompt": {
+            "unit_theme": " Fruits ",
+            "grammar_rules": [" It is ... "],
+            "prompt_notes": [" Keep it short. "],
+            "source_basis": [" Story Time "],
+        },
+    }
+
+    package = generator._payload_to_unit_package(unit_record, [4, 5], payload)
+
+    assert package.unit.unit_theme == "Fruits"
+    assert package.vocabulary[0].word == "banana"
+    assert package.vocabulary[0].source_excerpt == "Lesson 1 It's a banana."
+    assert package.dialogue_samples[0].title == "Story Time"
+    assert package.dialogue_samples[0].source_excerpt == "A: Hello. B: Hi."
+    assert len(package.dialogue_samples[0].turns) == 12
+    assert package.dialogue_samples[0].turns[0].speaker == "A"
+    assert package.dialogue_samples[0].turns[1].speaker == "B"
+    assert package.dialogue_samples[0].turns[1].text_en == "Hi."
+    assert package.unit_task.task_intro == "认识水果并进行问答"
