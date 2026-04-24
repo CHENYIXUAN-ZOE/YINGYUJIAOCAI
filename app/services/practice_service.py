@@ -668,10 +668,11 @@ class PracticeService:
                 return [
                     self._build_tip(
                         tip_type="next_step",
-                        title="这一步可以继续往前走",
-                        message_cn="你已经选了商品，下一句可以自然地把对话推进到问价格。",
-                        example_en=self._shopping_price_question(current_item or "doll"),
+                        title="这一步答得不错",
+                        message_cn="你已经把商品说清楚了。想继续的话，下一句可以自然地去问价格。",
+                        example_en=self._shopping_choice_sentence(current_item or "doll"),
                         reason_cn="这样更符合购物场景里“选商品 -> 问价格”的顺序。",
+                        optional_next_en=self._shopping_price_question(current_item or "doll"),
                         expected_move=expected_move,
                         actual_move=actual_move,
                     )
@@ -720,10 +721,11 @@ class PracticeService:
                     self._build_tip(
                         tip_type="next_step",
                         title="这一步推进得不错",
-                        message_cn="你已经主动问价格了，下一句可以顺势决定买不买，或者继续确认。",
-                        example_en="I will take it.",
+                        message_cn="你已经主动问价格了。这一句就已经答到点上了，接下来可以继续决定买不买。",
+                        example_en=self._shopping_price_question(current_item or "doll"),
                         reason_cn="真实购物对话里，问完价格后通常会进入购买决定。",
-                        optional_next_en="No, thank you.",
+                        optional_next_en="I will take it.",
+                        secondary_next_en="No, thank you.",
                         expected_move=expected_move,
                         actual_move=actual_move,
                     )
@@ -731,14 +733,15 @@ class PracticeService:
 
         if expected_move == "accept_or_decline":
             if actual_move in {"accept_item", "decline_item"}:
+                decision_example = "I will take it." if actual_move == "accept_item" else "No, thank you."
                 return [
                     self._build_tip(
                         tip_type="next_step",
                         title="这一步回答到位了",
                         message_cn="你已经做出了购买决定，下一句可以付款、致谢或自然收尾。",
-                        example_en="Here is the money.",
+                        example_en=decision_example,
                         reason_cn="这会让购物对话更完整。",
-                        optional_next_en="Thank you.",
+                        optional_next_en="Here is the money." if actual_move == "accept_item" else "Thank you.",
                         expected_move=expected_move,
                         actual_move=actual_move,
                     )
@@ -764,8 +767,9 @@ class PracticeService:
                         tip_type="next_step",
                         title="这一步已经很完整了",
                         message_cn="你已经完成付款，下一句可以礼貌地结束对话。",
-                        example_en="Thank you. Goodbye!",
+                        example_en="Here is the money.",
                         reason_cn="这样会让这一轮收得更自然。",
+                        optional_next_en="Thank you. Goodbye!",
                         expected_move=expected_move,
                         actual_move=actual_move,
                     )
@@ -844,8 +848,9 @@ class PracticeService:
                         tip_type="next_step",
                         title="这一步做得不错",
                         message_cn="你已经用完整句回答了，下一步可以继续练判断句，或者换一组新物品。",
-                        example_en=f"Are these {next_item}?",
+                        example_en=f"They're {current_item}.",
                         reason_cn="这一类单元通常会在“命名”和“判断”之间切换练习。",
+                        optional_next_en=f"Are these {next_item}?",
                         expected_move=expected_move,
                         actual_move=actual_move,
                     )
@@ -948,14 +953,16 @@ class PracticeService:
                     )
                 ]
             if actual_move == "on_track":
+                current_example = f"My name is {guessed_name}." if guessed_name else "My name is Amy."
                 return [
                     self._build_tip(
                         tip_type="next_step",
                         title="这一步回答到位了",
                         message_cn="你已经完成了自我介绍，下一句可以轻松地继续问候或反问对方。",
-                        example_en="Nice to meet you.",
+                        example_en=current_example,
                         reason_cn="这样会让开场更像自然对话。",
-                        optional_next_en="What is your name?",
+                        optional_next_en="Nice to meet you.",
+                        secondary_next_en="What is your name?",
                         expected_move=expected_move,
                         actual_move=actual_move,
                     )
@@ -975,13 +982,15 @@ class PracticeService:
                     )
                 ]
             if actual_move == "on_track":
+                current_example = self._weekend_plan_example(student_message, vocabulary)
                 return [
                     self._build_tip(
                         tip_type="next_step",
                         title="这一步已经答对了",
                         message_cn="你已经说出了计划，下一句可以再补一个地点、时间或同伴。",
-                        example_en="I will go to the park with my mom.",
+                        example_en=current_example,
                         reason_cn="这样会让回答更完整，但不会太难。",
+                        optional_next_en="I will go to the park with my mom.",
                         expected_move=expected_move,
                         actual_move=actual_move,
                     )
@@ -1040,13 +1049,15 @@ class PracticeService:
                     )
                 ]
             if actual_move == "on_track":
+                current_example = self._location_answer_example(target_patterns, vocabulary)
                 return [
                     self._build_tip(
                         tip_type="next_step",
                         title="这一步回答得不错",
                         message_cn="你已经说出了位置，下一句可以继续确认对方有没有听懂。",
-                        example_en="It is next to the library.",
+                        example_en=current_example,
                         reason_cn="位置类单元通常会继续补一个方向或确认句。",
+                        optional_next_en="It is next to the library.",
                         expected_move=expected_move,
                         actual_move=actual_move,
                     )
@@ -1359,18 +1370,26 @@ class PracticeService:
         example_en: str,
         reason_cn: str,
         optional_next_en: str = "",
+        secondary_next_en: str = "",
         expected_move: str = "",
         actual_move: str = "",
     ) -> dict[str, str]:
+        example_label_cn = self._tip_example_label(tip_type, optional_next_en)
+        optional_label_cn = self._tip_optional_label(tip_type)
         payload = {
             "tip_type": tip_type,
             "title": title,
             "message_cn": message_cn,
             "example_en": example_en,
             "reason_cn": reason_cn,
+            "example_label_cn": example_label_cn,
         }
         if optional_next_en:
             payload["optional_next_en"] = optional_next_en
+            payload["optional_next_label_cn"] = optional_label_cn
+        if secondary_next_en:
+            payload["secondary_next_en"] = secondary_next_en
+            payload["secondary_next_label_cn"] = "也可以这样接"
         if expected_move:
             payload["expected_move"] = expected_move
         if actual_move:
@@ -1378,6 +1397,8 @@ class PracticeService:
         return payload
 
     def _infer_shopping_expected_move(self, history: list[dict[str, str]], current_item: str) -> str:
+        if not history:
+            return "choose_item"
         last_assistant = next((message for message in reversed(history) if message.get("role") == "assistant"), {})
         prompt = last_assistant.get("content", "").lower()
         if "what would you like to buy" in prompt or "what do you want to buy" in prompt:
@@ -1507,7 +1528,31 @@ class PracticeService:
             return self._object_answer_example(target_patterns, student_message)
         if expected_move == "answer_yes_no":
             return "Yes, it is."
-        return target_patterns[0] if target_patterns else "I can say it in a full sentence."
+        response_pattern = self._preferred_response_pattern(target_patterns)
+        return response_pattern or (target_patterns[0] if target_patterns else "I can say it in a full sentence.")
+
+    def _preferred_response_pattern(self, target_patterns: list[str]) -> str:
+        for pattern in target_patterns:
+            response_side = self._response_side_from_pattern(pattern)
+            if response_side:
+                return response_side
+        for pattern in target_patterns:
+            lowered = pattern.lower().strip()
+            if "?" not in lowered and "..." not in pattern:
+                return pattern
+        return ""
+
+    def _response_side_from_pattern(self, pattern: str) -> str:
+        parts = [part.strip() for part in re.split(r"\s*/\s*", pattern) if part.strip()]
+        if len(parts) < 2:
+            return ""
+        for candidate in parts[1:]:
+            lowered = candidate.lower()
+            if "?" in candidate:
+                continue
+            if any(lowered.startswith(prefix) for prefix in ["it is", "it's", "they are", "they're", "my name is", "i am", "i like", "i will", "yes", "no", "here is"]):
+                return candidate
+        return ""
 
     def _location_answer_example(self, target_patterns: list[str], vocabulary: list[str]) -> str:
         lowered_patterns = [pattern.lower() for pattern in target_patterns]
@@ -1535,6 +1580,18 @@ class PracticeService:
                     return pattern
         return f"It is {article} {word}."
 
+    def _tip_example_label(self, tip_type: str, optional_next_en: str) -> str:
+        if tip_type == "next_step" and optional_next_en:
+            return "这一步可以这样答"
+        if tip_type == "sound_more_natural":
+            return "更自然的说法"
+        return "可以这样说"
+
+    def _tip_optional_label(self, tip_type: str) -> str:
+        if tip_type == "next_step":
+            return "接着还可以这样说"
+        return "还可以这样说"
+
     def _sounds_like_customer_price_answer(self, text: str) -> bool:
         if "yuan" in text:
             return True
@@ -1559,6 +1616,8 @@ class PracticeService:
         candidate = re.sub(r"[^A-Za-z -]", " ", student_message).strip()
         if not candidate:
             return ""
+        candidate = re.sub(r"^\s*my\s+name\s+is\s+", "", candidate, flags=re.IGNORECASE)
+        candidate = re.sub(r"^\s*i\s+am\s+", "", candidate, flags=re.IGNORECASE)
         parts = [part for part in candidate.split() if part]
         if not parts:
             return ""

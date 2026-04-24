@@ -355,7 +355,9 @@ def test_chat_returns_shopping_turn_tip(tmp_path):
 
     assert payload["turn_tip"]["has_tip"] is True
     assert payload["turn_tip"]["tips"][0]["tip_type"] == "next_step"
-    assert payload["turn_tip"]["tips"][0]["example_en"] == "How much is the doll?"
+    assert payload["turn_tip"]["tips"][0]["example_en"] == "I want a doll."
+    assert payload["turn_tip"]["tips"][0]["example_label_cn"] == "这一步可以这样答"
+    assert payload["turn_tip"]["tips"][0]["optional_next_en"] == "How much is the doll?"
     assert "问价格" in payload["turn_tip"]["tips"][0]["message_cn"]
 
 
@@ -479,6 +481,39 @@ def test_chat_returns_name_intro_completion_tip(tmp_path):
     assert payload["turn_tip"]["has_tip"] is True
     assert payload["turn_tip"]["tips"][0]["tip_type"] == "make_it_full"
     assert payload["turn_tip"]["tips"][0]["example_en"] == "My name is Amy."
+
+
+def test_chat_name_tip_keeps_current_answer_and_next_step_separate(tmp_path):
+    job_service = StubJobService()
+    job_service.payload["units"][0]["sentence_patterns"] = [
+        {"pattern": "What is your name?"},
+        {"pattern": "My name is ..."},
+    ]
+    job_service.payload["units"][0]["unit_task"] = {"task_intro": "打招呼并介绍自己。"}
+    service = PracticeService(job_service, StubPracticeClient(configured=True))
+
+    payload = service.chat(
+        type(
+            "Req",
+            (),
+            {
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "grade_band": "3-4",
+                "prompt_template": "template",
+                "final_prompt": "final prompt",
+                "messages": [{"role": "assistant", "content": "Hello! What is your name?"}],
+                "student_message": "My name is Amy.",
+                "is_opening_turn": False,
+            },
+        )()
+    )
+
+    assert payload["turn_tip"]["has_tip"] is True
+    assert payload["turn_tip"]["tips"][0]["tip_type"] == "next_step"
+    assert payload["turn_tip"]["tips"][0]["example_en"] == "My name is Amy."
+    assert payload["turn_tip"]["tips"][0]["optional_next_en"] == "Nice to meet you."
+    assert payload["turn_tip"]["tips"][0]["secondary_next_en"] == "What is your name?"
 
 
 def test_chat_location_tip_prefers_answer_pattern_not_question_pattern(tmp_path):
