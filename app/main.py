@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import logging
 
 from fastapi import Depends, FastAPI, Request
@@ -25,17 +26,6 @@ from app.api.deps import get_job_service
 settings = get_settings()
 templates = Jinja2Templates(directory=str(settings.template_dir))
 logger = logging.getLogger(__name__)
-
-app = FastAPI(title=settings.project_name)
-app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
-
-app.include_router(upload_router, prefix=settings.api_prefix)
-app.include_router(jobs_router, prefix=settings.api_prefix)
-app.include_router(results_router, prefix=settings.api_prefix)
-app.include_router(practice_router, prefix=settings.api_prefix)
-app.include_router(review_router, prefix=settings.api_prefix)
-app.include_router(export_router, prefix=settings.api_prefix)
-
 
 def _is_api_request(request: Request) -> bool:
     return request.url.path.startswith(settings.api_prefix)
@@ -66,8 +56,8 @@ def _error_response(
     )
 
 
-@app.on_event("startup")
-async def recover_incomplete_jobs():
+@asynccontextmanager
+async def lifespan(_: FastAPI):
     recovered_jobs = get_job_service().recover_incomplete_jobs()
     if recovered_jobs:
         logger.warning(
@@ -75,6 +65,18 @@ async def recover_incomplete_jobs():
             len(recovered_jobs),
             ", ".join(job.job_id for job in recovered_jobs),
         )
+    yield
+
+
+app = FastAPI(title=settings.project_name, lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
+
+app.include_router(upload_router, prefix=settings.api_prefix)
+app.include_router(jobs_router, prefix=settings.api_prefix)
+app.include_router(results_router, prefix=settings.api_prefix)
+app.include_router(practice_router, prefix=settings.api_prefix)
+app.include_router(review_router, prefix=settings.api_prefix)
+app.include_router(export_router, prefix=settings.api_prefix)
 
 
 @app.exception_handler(AppError)

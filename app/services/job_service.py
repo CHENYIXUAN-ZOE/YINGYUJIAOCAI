@@ -32,6 +32,7 @@ from app.services.generator.unit_content_generator import UnitContentGenerator
 from app.services.parser import (
     layout_analyzer,
     ocr_processor,
+    pdf_preflight,
     pdf_loader,
     section_classifier,
     unit_detector,
@@ -113,6 +114,7 @@ class JobService:
         file_path = self.upload_dir / f"{job_id}_{file_name}"
         file_path.write_bytes(content)
         created_at = _now_iso()
+        preflight = pdf_preflight.analyze_pdf(file_path)
         job = ParseJob(
             job_id=job_id,
             file_name=file_name,
@@ -124,6 +126,7 @@ class JobService:
             created_at=created_at,
             updated_at=created_at,
             review_status=ReviewStatus.pending,
+            preflight=preflight,
         )
         return self.job_repo.save(job)
 
@@ -641,6 +644,7 @@ class JobService:
                     "retry_count": job.retry_count,
                     "last_error_code": job.last_error_code,
                     "retryable": job.retryable,
+                    "preflight": job.preflight.model_dump(mode="json"),
                     "has_result": bool(result),
                     "review_state": review_state,
                     "review_state_label": REVIEW_STATE_LABELS[review_state],

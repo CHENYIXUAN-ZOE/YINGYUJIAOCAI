@@ -311,3 +311,26 @@ def test_force_reparse_from_reviewing_increments_retry_count(tmp_path, monkeypat
     finished_job = service.get_job(job.job_id)
     assert finished_job.status == ParseStatus.reviewing
     assert finished_job.retry_count == 1
+
+
+def test_recover_incomplete_jobs_marks_processing_jobs_failed(tmp_path):
+    settings = build_settings(tmp_path)
+    service = build_service(settings, StubUnitContentGenerator())
+
+    job = service.create_job("sample.pdf", b"%PDF-1.4")
+    job.status = ParseStatus.parsing
+    job.phase = "running_ocr"
+    job.progress = 22
+    job.page_total = 10
+    job.page_done = 3
+    service.job_repo.save(job)
+
+    recovered_jobs = service.recover_incomplete_jobs()
+
+    assert len(recovered_jobs) == 1
+    recovered_job = service.get_job(job.job_id)
+    assert recovered_job.status == ParseStatus.failed
+    assert recovered_job.phase == "failed"
+    assert recovered_job.last_error_code == "JOB_RECOVERED_AFTER_RESTART"
+    assert recovered_job.retryable is True
+    assert "未完成" in (recovered_job.error_message or "")

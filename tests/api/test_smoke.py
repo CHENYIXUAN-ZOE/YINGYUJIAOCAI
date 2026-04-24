@@ -7,6 +7,7 @@ from app.repositories.export_repo import ExportRepository
 from app.repositories.job_repo import JobRepository
 from app.repositories.result_repo import ResultRepository
 from app.repositories.review_repo import ReviewRepository
+from app.schemas.job import PdfPreflight
 from app.services.job_service import JobService
 
 
@@ -75,6 +76,15 @@ def test_missing_job_returns_404():
     assert response.status_code == 404
 
 
+def test_unknown_api_route_returns_json_error():
+    response = client.get("/api/v1/does-not-exist")
+
+    assert response.status_code == 404
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["error"]["code"] == "HTTP_404"
+
+
 def test_delete_job_api(tmp_path):
     settings = build_settings(tmp_path)
     service = build_service(settings)
@@ -102,6 +112,55 @@ def test_upload_returns_file_size_details(monkeypatch):
     payload = response.json()
     assert payload["error"]["code"] == "FILE_TOO_LARGE"
     assert payload["error"]["details"]["limit_mb"] == 1
+
+
+def test_upload_returns_preflight_summary(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.job_service.pdf_preflight.analyze_pdf",
+        lambda _path: PdfPreflight(
+            file_size_mb=4.2,
+            page_count=32,
+            text_layer_detected=True,
+            detected_pdf_type="text",
+            estimated_duration_sec=240,
+            estimated_duration_range="4 分钟 - 6 分钟",
+            duration_budget_sec=600,
+            within_duration_budget=True,
+            warnings=[],
+        ),
+    )
+
+    response = client.post(
+        "/api/v1/upload",
+        files={"file": ("sample.pdf", b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["preflight"]["page_count"] == 32
+    assert payload["preflight"]["detected_pdf_type"] == "text"
+    assert payload["preflight"]["estimated_duration_range"] == "4 分钟 - 6 分钟"
+
+
+class BrokenJobService:
+    def get_job_status(self, job_id: str):
+        raise RuntimeError(f"boom for {job_id}")
+
+
+def test_unhandled_api_error_returns_structured_json():
+    isolated_client = TestClient(app, raise_server_exceptions=False)
+    app.dependency_overrides[get_job_service] = lambda: BrokenJobService()
+    try:
+        response = isolated_client.get("/api/v1/jobs/job_demo")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 500
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["error"]["code"] == "INTERNAL_ERROR"
+    assert payload["error"]["retryable"] is True
+    assert payload["error"]["technical_message"] == "boom for job_demo"
 
 
 class StubPracticeService:

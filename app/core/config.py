@@ -44,6 +44,10 @@ class Settings(BaseModel):
     doubao_timeout_sec: int = Field(default_factory=lambda: int(os.getenv("DOUBAO_TIMEOUT_SEC", "60")))
     ocr_page_batch_size: int = Field(default_factory=lambda: int(os.getenv("OCR_PAGE_BATCH_SIZE", "4")))
     ocr_render_dpi: int = Field(default_factory=lambda: int(os.getenv("OCR_RENDER_DPI", "160")))
+    target_parse_duration_sec: int = Field(
+        default_factory=lambda: int(os.getenv("TARGET_PARSE_DURATION_SEC", "600"))
+    )
+    preflight_sample_pages: int = Field(default_factory=lambda: int(os.getenv("PREFLIGHT_SAMPLE_PAGES", "3")))
     allow_placeholder_fallback: bool = Field(
         default_factory=lambda: os.getenv("ALLOW_PLACEHOLDER_FALLBACK", "false").lower() in {
             "1",
