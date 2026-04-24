@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.parser.unit_detector import detect
+from app.services.parser.unit_detector import assess_detection, detect
 
 
 def test_detect_prefers_front_toc_cluster_over_word_list_like_pages():
@@ -119,3 +119,19 @@ def test_detect_binds_toc_page_numbers_from_neighbor_lines():
     assert units[3]["source_pages"][0] == 40
     assert units[5]["unit_code"] == "Unit 6"
     assert units[5]["source_pages"][0] == 64
+
+
+def test_assess_detection_marks_large_fallback_result_low_confidence():
+    document = {
+        "stem": "sample",
+        "page_count": 36,
+        "page_lines": [{"page_num": 1, "line": "random text"}],
+        "content_page_lines": [{"page_num": 1, "line": "random text"}],
+    }
+
+    units = detect(document)
+    assessment = assess_detection(document, units)
+
+    assert assessment["low_confidence"] is True
+    assert "fallback_detection_on_multi_page_book" in assessment["low_confidence_reasons"]
+    assert "single_unit_on_large_book" in assessment["low_confidence_reasons"]

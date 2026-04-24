@@ -102,6 +102,18 @@ class JobService:
         self._active_jobs: dict[str, Future] = {}
         self._lock = threading.RLock()
 
+    @staticmethod
+    def _raise_low_confidence_structuring_error(*, code: str, message: str, phase: str, details: dict) -> None:
+        raise AppError(
+            code,
+            message,
+            status_code=422,
+            details=details,
+            retryable=True,
+            phase=phase,
+            technical_message=message,
+        )
+
     def create_job(self, file_name: str, content: bytes) -> ParseJob:
         job_id = f"job_{uuid4().hex[:10]}"
         file_path = self.upload_dir / f"{job_id}_{file_name}"
@@ -316,6 +328,14 @@ class JobService:
                 phase_message="正在识别单元边界。",
             )
             units = unit_detector.detect(document)
+            unit_detection = unit_detector.assess_detection(document, units)
+            if unit_detection["low_confidence"]:
+                self._raise_low_confidence_structuring_error(
+                    code="LOW_CONFIDENCE_UNIT_DETECTION",
+                    message="单元识别结果置信度过低，请重试或更换更清晰的教材文件。",
+                    phase="detecting_units",
+                    details=unit_detection,
+                )
 
             job = self._set_job_state(
                 job,
@@ -327,6 +347,14 @@ class JobService:
                 unit_done=0,
             )
             units = section_classifier.classify(document, units)
+            section_assessment = section_classifier.assess_classification(document, units)
+            if section_assessment["low_confidence"]:
+                self._raise_low_confidence_structuring_error(
+                    code="LOW_CONFIDENCE_SECTION_CLASSIFICATION",
+                    message="单元板块识别结果置信度过低，请重试或检查教材文本质量。",
+                    phase="classifying_sections",
+                    details=section_assessment,
+                )
 
             def update_generation_progress(processed_units: int, total_units: int) -> None:
                 if total_units <= 0:
