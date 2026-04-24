@@ -356,7 +356,7 @@ def test_chat_returns_shopping_turn_tip(tmp_path):
     assert payload["turn_tip"]["has_tip"] is True
     assert payload["turn_tip"]["tips"][0]["tip_type"] == "next_step"
     assert payload["turn_tip"]["tips"][0]["example_en"] == "How much is the doll?"
-    assert "选了商品" in payload["turn_tip"]["tips"][0]["message_cn"]
+    assert "问价格" in payload["turn_tip"]["tips"][0]["message_cn"]
 
 
 def test_chat_returns_shopping_role_alignment_tip(tmp_path):
@@ -406,6 +406,50 @@ def test_chat_returns_shopping_role_alignment_tip(tmp_path):
     assert payload["turn_tip"]["tips"][0]["example_en"] == "How much is the doll?"
 
 
+def test_chat_shopping_tip_prefers_current_reply_move_over_unit_target_pattern(tmp_path):
+    job_service = StubJobService()
+    unit = job_service.payload["units"][0]
+    unit["unit"]["unit_theme"] = "购物与价格询问"
+    unit["unit"]["classification"]["unit_name"] = "Shopping"
+    unit["vocabulary"] = [{"word": "doll"}, {"word": "sunglasses"}, {"word": "toy train"}, {"word": "yuan"}]
+    unit["sentence_patterns"] = [
+        {"pattern": "How much is it? / It's X yuan."},
+        {"pattern": "How much are they? / They are X yuan."},
+    ]
+    unit["dialogue_samples"] = [
+        {
+            "turns": [
+                {"speaker": "Mary", "text_en": "How much is this doll?"},
+                {"speaker": "Shopkeeper", "text_en": "It's twenty yuan."},
+            ]
+        }
+    ]
+    unit["unit_task"] = {"task_intro": "学生选择商品并扮演顾客和售货员进行购物对话。"}
+    service = PracticeService(job_service, StubPracticeClient(configured=True))
+
+    payload = service.chat(
+        type(
+            "Req",
+            (),
+            {
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "grade_band": "3-4",
+                "prompt_template": "template",
+                "final_prompt": "final prompt",
+                "messages": [{"role": "assistant", "content": "Hello! Welcome to my shop. What would you like to buy today?"}],
+                "student_message": "How much is the doll?",
+                "is_opening_turn": False,
+            },
+        )()
+    )
+
+    assert payload["turn_tip"]["has_tip"] is True
+    assert payload["turn_tip"]["tips"][0]["tip_type"] == "too_early"
+    assert payload["turn_tip"]["tips"][0]["example_en"] == "I want a doll."
+    assert payload["turn_tip"]["tips"][0]["optional_next_en"] == "How much is the doll?"
+
+
 def test_chat_returns_name_intro_completion_tip(tmp_path):
     job_service = StubJobService()
     job_service.payload["units"][0]["sentence_patterns"] = [
@@ -435,6 +479,40 @@ def test_chat_returns_name_intro_completion_tip(tmp_path):
     assert payload["turn_tip"]["has_tip"] is True
     assert payload["turn_tip"]["tips"][0]["tip_type"] == "make_it_full"
     assert payload["turn_tip"]["tips"][0]["example_en"] == "My name is Amy."
+
+
+def test_chat_location_tip_prefers_answer_pattern_not_question_pattern(tmp_path):
+    job_service = StubJobService()
+    job_service.payload["units"][0]["unit"]["unit_theme"] = "My School"
+    job_service.payload["units"][0]["unit"]["classification"]["unit_name"] = "My School"
+    job_service.payload["units"][0]["vocabulary"] = [{"word": "library"}, {"word": "playground"}]
+    job_service.payload["units"][0]["sentence_patterns"] = [
+        {"pattern": "Where is the library?"},
+        {"pattern": "It is next to the playground."},
+    ]
+    job_service.payload["units"][0]["unit_task"] = {"task_intro": "询问并回答地点位置。"}
+    service = PracticeService(job_service, StubPracticeClient(configured=True))
+
+    payload = service.chat(
+        type(
+            "Req",
+            (),
+            {
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "grade_band": "3-4",
+                "prompt_template": "template",
+                "final_prompt": "final prompt",
+                "messages": [{"role": "assistant", "content": "Where is the library?"}],
+                "student_message": "Where is the library?",
+                "is_opening_turn": False,
+            },
+        )()
+    )
+
+    assert payload["turn_tip"]["has_tip"] is True
+    assert payload["turn_tip"]["tips"][0]["tip_type"] == "stay_on_task"
+    assert payload["turn_tip"]["tips"][0]["example_en"] == "It is next to the playground."
 
 
 def test_chat_deictic_opening_introduces_anchor_item(tmp_path):
