@@ -13,12 +13,9 @@ def generate(classification: Classification, raw_items: list[dict], unit_id: str
                 word=raw["word"],
                 part_of_speech=raw.get("part_of_speech"),
                 meaning_zh=raw.get("meaning_zh"),
-                example_sentences=[
-                    f"This is my {raw['word']}.",
-                    f"I can talk about {raw['word']} in this unit.",
-                ][:2],
-                source_pages=[1],
-                source_excerpt=raw["word"],
+                example_sentences=[sentence for sentence in raw.get("example_sentences", []) if sentence][:2],
+                source_pages=list(raw.get("source_pages") or [1]),
+                source_excerpt=raw.get("source_excerpt") or raw["word"],
             )
         )
     return items
