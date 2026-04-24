@@ -311,3 +311,109 @@ def test_chat_shopping_policy_answers_price_from_dialogue_example(tmp_path):
     )
 
     assert payload["assistant_message"]["content"] == "They are thirty yuan."
+
+
+def test_chat_deictic_opening_introduces_anchor_item(tmp_path):
+    job_service = StubJobService()
+    unit = job_service.payload["units"][0]
+    unit["unit"]["unit_theme"] = "Vegetables"
+    unit["unit"]["classification"]["unit_name"] = "Vegetables"
+    unit["vocabulary"] = [{"word": "tomatoes"}, {"word": "carrots"}, {"word": "beans"}, {"word": "these"}]
+    unit["sentence_patterns"] = [
+        {"pattern": "What are these/those?"},
+        {"pattern": "They're + plural noun."},
+        {"pattern": "Are these/those + plural noun?"},
+    ]
+    unit["unit_task"] = {"task_intro": "学习蔬菜名称，并用英语询问和回答它们是什么。"}
+    service = PracticeService(job_service, StubPracticeClient(configured=True))
+
+    payload = service.chat(
+        type(
+            "Req",
+            (),
+            {
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "grade_band": "3-4",
+                "prompt_template": "template",
+                "final_prompt": "final prompt",
+                "messages": [],
+                "student_message": "",
+                "is_opening_turn": True,
+            },
+        )()
+    )
+
+    assert payload["assistant_message"]["content"] == "Hello! Today let's talk about vegetables. Here are some tomatoes. What are these?"
+
+
+def test_chat_deictic_policy_advances_with_context_after_correct_answer(tmp_path):
+    job_service = StubJobService()
+    unit = job_service.payload["units"][0]
+    unit["unit"]["unit_theme"] = "Vegetables"
+    unit["unit"]["classification"]["unit_name"] = "Vegetables"
+    unit["vocabulary"] = [{"word": "tomatoes"}, {"word": "carrots"}, {"word": "beans"}, {"word": "these"}]
+    unit["sentence_patterns"] = [
+        {"pattern": "What are these/those?"},
+        {"pattern": "They're + plural noun."},
+        {"pattern": "Are these/those + plural noun?"},
+    ]
+    unit["unit_task"] = {"task_intro": "学习蔬菜名称，并用英语询问和回答它们是什么。"}
+    service = PracticeService(job_service, StubPracticeClient(configured=True))
+
+    payload = service.chat(
+        type(
+            "Req",
+            (),
+            {
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "grade_band": "3-4",
+                "prompt_template": "template",
+                "final_prompt": "final prompt",
+                "messages": [{"role": "assistant", "content": "Hello! Today let's talk about vegetables. Here are some tomatoes. What are these?"}],
+                "student_message": "They're tomatoes.",
+                "is_opening_turn": False,
+            },
+        )()
+    )
+
+    assert payload["assistant_message"]["content"] == "Good! Now look at these carrots. Are these tomatoes?"
+
+
+def test_chat_deictic_policy_explains_after_negative_answer_and_moves_on(tmp_path):
+    job_service = StubJobService()
+    unit = job_service.payload["units"][0]
+    unit["unit"]["unit_theme"] = "Vegetables"
+    unit["unit"]["classification"]["unit_name"] = "Vegetables"
+    unit["vocabulary"] = [{"word": "tomatoes"}, {"word": "carrots"}, {"word": "beans"}, {"word": "these"}]
+    unit["sentence_patterns"] = [
+        {"pattern": "What are these/those?"},
+        {"pattern": "They're + plural noun."},
+        {"pattern": "Are these/those + plural noun?"},
+    ]
+    unit["unit_task"] = {"task_intro": "学习蔬菜名称，并用英语询问和回答它们是什么。"}
+    service = PracticeService(job_service, StubPracticeClient(configured=True))
+
+    payload = service.chat(
+        type(
+            "Req",
+            (),
+            {
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "grade_band": "3-4",
+                "prompt_template": "template",
+                "final_prompt": "final prompt",
+                "messages": [
+                    {"role": "assistant", "content": "Hello! Today let's talk about vegetables. Here are some tomatoes. What are these?"},
+                    {"role": "user", "content": "They're tomatoes."},
+                    {"role": "assistant", "content": "Good! Now look at these carrots. Are these tomatoes?"},
+                ],
+                "student_message": "No, they aren't.",
+                "is_opening_turn": False,
+            },
+        )()
+    )
+
+    assert payload["assistant_message"]["content"] == "That's right. They're carrots. Now look at these beans. What are these?"

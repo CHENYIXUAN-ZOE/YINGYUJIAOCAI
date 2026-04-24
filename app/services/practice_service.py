@@ -290,6 +290,13 @@ class PracticeService:
                 "items": items,
                 "price_answers": self._extract_shopping_price_answers(unit_package, items),
             }
+        if self._is_deictic_identification_unit(unit_context):
+            items = self._extract_deictic_items(unit_package)
+            return {
+                "type": "deictic_identification",
+                "items": items,
+                "topic": str(unit_context.get("unit_theme", "") or unit_context.get("unit_name", "") or "these things").strip(),
+            }
         return {"type": "default"}
 
     def _build_practice_guidance(
@@ -374,6 +381,10 @@ class PracticeService:
             planned = self._plan_shopping_response(policy, prior_messages, student_message, is_opening_turn)
             if planned:
                 return planned
+        if policy.get("type") == "deictic_identification":
+            planned = self._plan_deictic_identification_response(policy, prior_messages, student_message, is_opening_turn)
+            if planned:
+                return planned
         return normalized
 
     def _is_shopping_unit(self, unit_context: dict[str, Any]) -> bool:
@@ -389,6 +400,25 @@ class PracticeService:
             marker in joined
             for marker in ["shopping", "购物", "顾客", "售货员", "店员", "价格", "how much", "yuan", "buy", "sell"]
         )
+
+    def _is_deictic_identification_unit(self, unit_context: dict[str, Any]) -> bool:
+        patterns = " | ".join(unit_context.get("key_sentence_patterns", []) or []).lower()
+        if "what are these" in patterns or "what are those" in patterns:
+            return True
+        if "are these" in patterns or "are those" in patterns:
+            return True
+        return False
+
+    def _extract_deictic_items(self, unit_package: dict[str, Any]) -> list[str]:
+        ignored = {"these", "those", "shopping list", "list"}
+        items: list[str] = []
+        for item in unit_package.get("vocabulary", []):
+            word = str(item.get("word", "") or "").strip().lower()
+            if not word or word in ignored:
+                continue
+            if word not in items:
+                items.append(word)
+        return items
 
     def _extract_shopping_items(self, unit_package: dict[str, Any]) -> list[str]:
         ignored = {"yuan", "how much", "thank you", "here is the money", "eleven", "twenty", "fifty", "one hundred"}
@@ -476,6 +506,65 @@ class PracticeService:
 
         return "What would you like to buy today?"
 
+    def _plan_deictic_identification_response(
+        self,
+        policy: dict[str, Any],
+        prior_messages: list[Any],
+        student_message: str,
+        is_opening_turn: bool,
+    ) -> str:
+        items = policy.get("items", []) if isinstance(policy, dict) else []
+        topic = str(policy.get("topic", "") or "these things").strip().lower()
+        normalized_student = " ".join((student_message or "").split()).strip()
+        history = self._normalize_history(prior_messages)
+
+        if not items:
+            if is_opening_turn:
+                return f"Hello! Today let's talk about {topic}. What are these?"
+            return "Can you answer with a short sentence?"
+
+        if is_opening_turn:
+            first_item = items[0]
+            return f"Hello! Today let's talk about {topic}. Here are some {first_item}. What are these?"
+
+        lowered_student = normalized_student.lower()
+        last_assistant = next((message for message in reversed(history) if message.get("role") == "assistant"), {})
+        last_content = last_assistant.get("content", "").lower()
+        current_item = self._last_anchor_item(history, items) or items[0]
+        next_item = self._next_item(items, current_item)
+        previous_item = self._previous_item(items, current_item)
+
+        if "what are these" in lowered_student or "what are those" in lowered_student:
+            return f"They're {current_item}."
+        if "are these" in lowered_student or "are those" in lowered_student:
+            if current_item == previous_item or not current_item:
+                return "Yes, they are."
+            return f"No, they aren't. They're {current_item}."
+
+        if "what are these" in last_content or "what are those" in last_content:
+            if self._student_matches_item_response(lowered_student, current_item):
+                if next_item:
+                    return f"Good! Now look at these {next_item}. Are these {current_item}?"
+                return f"Good! They're {current_item}."
+            return f"They're {current_item}. Can you say, 'They're {current_item}'?"
+
+        if "are these" in last_content or "are those" in last_content:
+            if self._is_yes_no_negative(lowered_student):
+                if next_item:
+                    return f"That's right. They're {current_item}. Now look at these {next_item}. What are these?"
+                return f"That's right. They're {current_item}."
+            if self._is_yes_no_positive(lowered_student):
+                if next_item:
+                    return f"Not quite. They're {current_item}. Now look at these {next_item}. What are these?"
+                return f"They're {current_item}."
+            if self._student_matches_item_response(lowered_student, current_item):
+                if next_item:
+                    return f"Good! Now look at these {next_item}. What are these?"
+                return f"Good! They're {current_item}."
+            return f"They're {current_item}. Can you say, 'They're {current_item}'?"
+
+        return f"Here are some {current_item}. What are these?"
+
     def _normalize_history(self, prior_messages: list[Any]) -> list[dict[str, str]]:
         history: list[dict[str, str]] = []
         for item in prior_messages:
@@ -514,6 +603,17 @@ class PracticeService:
                 return detected
         return ""
 
+    def _last_anchor_item(self, history: list[dict[str, str]], items: list[str]) -> str:
+        for message in reversed(history):
+            content = message.get("content", "").lower()
+            for item in sorted(items, key=len, reverse=True):
+                if re.search(rf"(?:here are some|look at these|look at those|these are|those are)\s+{re.escape(item)}\b", content):
+                    return item
+            detected = self._detect_item_in_text(content, items)
+            if detected:
+                return detected
+        return ""
+
     def _has_price_nudge_for_item(self, history: list[dict[str, str]], item: str) -> bool:
         target = f"how much is the {item}"
         for message in history:
@@ -526,6 +626,33 @@ class PracticeService:
 
     def _student_mentions_multiple_items(self, text: str, items: list[str]) -> bool:
         return len(self._items_in_text(text, items)) >= 2
+
+    def _student_matches_item_response(self, text: str, item: str) -> bool:
+        if not item:
+            return False
+        return item in text or f"they are {item}" in text or f"they're {item}" in text
+
+    def _is_yes_no_negative(self, text: str) -> bool:
+        return any(token in text for token in ["no, they aren't", "no they aren't", "no, they are not", "no they are not", "no"])
+
+    def _is_yes_no_positive(self, text: str) -> bool:
+        return any(token in text for token in ["yes, they are", "yes they are", "yes"])
+
+    def _next_item(self, items: list[str], current_item: str) -> str:
+        if current_item not in items:
+            return items[0] if items else ""
+        index = items.index(current_item)
+        if index + 1 < len(items):
+            return items[index + 1]
+        return ""
+
+    def _previous_item(self, items: list[str], current_item: str) -> str:
+        if current_item not in items:
+            return ""
+        index = items.index(current_item)
+        if index > 0:
+            return items[index - 1]
+        return current_item
 
     def _shopping_price_question(self, item: str) -> str:
         if item.endswith("s") and item != "glasses":
