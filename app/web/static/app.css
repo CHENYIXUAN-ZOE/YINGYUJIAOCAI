@@ -743,12 +743,13 @@ textarea {
 }
 
 .practice-page {
-  max-width: 1720px;
+  max-width: 1880px;
 }
 
 .workspace-page.practice-page {
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px 14px;
 }
 
 .practice-header {
@@ -761,8 +762,8 @@ textarea {
 
 .practice-shell {
   display: grid;
-  grid-template-columns: minmax(320px, 0.9fr) minmax(620px, 1.45fr) minmax(320px, 0.95fr);
-  gap: 16px;
+  grid-template-columns: minmax(320px, 0.84fr) minmax(760px, 1.7fr) minmax(320px, 0.92fr);
+  gap: 14px;
   align-items: start;
 }
 
@@ -923,8 +924,7 @@ textarea {
 }
 
 .practice-bubble.has-tip {
-  cursor: pointer;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .practice-bubble.has-tip:hover {
