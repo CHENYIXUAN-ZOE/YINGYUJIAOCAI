@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>口语对练测试</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260422a">
+    <link rel="stylesheet" href="/static/app.css?v=20260424e">
   </head>
   <body>
     <main class="workspace-page practice-page">
@@ -97,12 +97,10 @@
                 <textarea id="practice-final-prompt" class="practice-textarea practice-preview" rows="16" readonly></textarea>
               </label>
 
-              <div class="action-row">
-                <button type="button" id="practice-start-button">开始测试</button>
-                <button type="button" class="secondary" id="practice-reset-chat-button">重新开始</button>
+              <div class="action-row practice-config-actions">
                 <button type="button" class="secondary" id="practice-restore-prompt-button">恢复默认 Prompt</button>
               </div>
-              <p class="meta-text">对话记录仅保存在前端。</p>
+              <p class="meta-text">对话记录仅保存在前端。开始测试和重新开始按钮已移到右侧对话区。</p>
             </section>
           </div>
 
@@ -116,6 +114,10 @@
                 <div class="practice-session-meta">
                   <span id="practice-session-status" class="status-pill review-pending">未开始</span>
                   <span id="practice-round-label" class="meta-text">当前轮次 0 / 目标 7-8轮</span>
+                  <div class="practice-session-actions action-row">
+                    <button type="button" id="practice-start-button">开始测试</button>
+                    <button type="button" class="secondary" id="practice-reset-chat-button">重新开始</button>
+                  </div>
                 </div>
               </div>
 
@@ -174,6 +176,6 @@
       };
     </script>
     <script src="/static/app.js?v=20260424b"></script>
-    <script src="/static/practice.js?v=20260422a"></script>
+    <script src="/static/practice.js?v=20260424g"></script>
   </body>
 </html>

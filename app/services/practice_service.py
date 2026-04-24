@@ -623,48 +623,182 @@ class PracticeService:
             or self._last_student_item(history, items)
             or self._last_referenced_item(history, items)
         )
+        expected_move = self._infer_shopping_expected_move(history, current_item)
+        actual_move = self._infer_shopping_actual_move(lowered_student, current_item, items)
 
-        if "how much" in lowered_student:
-            if current_item:
+        if expected_move == "choose_item":
+            if actual_move == "price_answer":
                 return [
-                    {
-                        "title": "这一步做得不错",
-                        "message_cn": "你已经主动问价格了，下一句可以继续决定要不要买。",
-                        "example_en": "I will take it.",
-                        "reason_cn": "购物对话里，问完价格后通常会进入购买决定。",
-                    }
+                    self._build_tip(
+                        tip_type="stay_on_task",
+                        title="这一步先别跳到报价",
+                        message_cn="老师刚在问你想买什么，这一步先说商品，会更符合对话顺序。",
+                        example_en=self._shopping_choice_sentence(current_item or "doll"),
+                        reason_cn="先完成“选商品”，再进入问价，会比直接报价格更自然。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
                 ]
-            return []
-
-        if current_item and any(token in lowered_student for token in ["want", "like", "take"]):
-            return [
-                {
-                    "title": "这一步可以试试",
-                    "message_cn": "如果你想继续购物，可以主动问价格。",
-                    "example_en": self._shopping_price_question(current_item),
-                    "reason_cn": "这一轮的重点是练习询问价格。",
-                }
-            ]
-
-        if "it is" in lowered_student or "it’s" in lowered_student or "it's" in lowered_student:
-            if current_item:
+            if actual_move == "ask_price":
                 return [
-                    {
-                        "title": "这一步可以更自然",
-                        "message_cn": "你已经表达了喜欢，可以继续决定是否购买，或者主动问价格。",
-                        "example_en": f"How much is the {current_item}?",
-                        "reason_cn": "这样更贴近购物场景的完整对话链路。",
-                    }
+                    self._build_tip(
+                        tip_type="too_early",
+                        title="这一步可以先把商品说出来",
+                        message_cn="你已经想到下一步了，但老师这一句更希望你先说想买什么。",
+                        example_en=self._shopping_choice_sentence(current_item or "doll"),
+                        reason_cn="先选商品，再问价格，整段购物对话会更顺。",
+                        optional_next_en=self._shopping_price_question(current_item or "doll"),
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "choose_item_keyword":
+                return [
+                    self._build_tip(
+                        tip_type="make_it_full",
+                        title="这句话可以再完整一点",
+                        message_cn="你已经提到了商品，再补成完整句，店员会更容易接着往下说。",
+                        example_en=self._shopping_choice_sentence(current_item or lowered_student or "doll"),
+                        reason_cn="先把想买什么说完整，再进入下一步会更自然。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "choose_item":
+                return [
+                    self._build_tip(
+                        tip_type="next_step",
+                        title="这一步答得不错",
+                        message_cn="你已经把商品说清楚了。想继续的话，下一句可以自然地去问价格。",
+                        example_en=self._shopping_choice_sentence(current_item or "doll"),
+                        reason_cn="这样更符合购物场景里“选商品 -> 问价格”的顺序。",
+                        optional_next_en=self._shopping_price_question(current_item or "doll"),
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
                 ]
 
-        if any(token in lowered_student for token in ["thank you", "thanks"]):
+        if expected_move == "ask_price":
+            if actual_move == "price_answer":
+                prompt_item = current_item or "it"
+                return [
+                    self._build_tip(
+                        tip_type="stay_on_task",
+                        title="这一步可以换成顾客会说的话",
+                        message_cn="这一句更适合由顾客来问价格，而不是直接报价格。",
+                        example_en=self._shopping_price_question(prompt_item) if prompt_item != "it" else "How much is it?",
+                        reason_cn="这样能把学生放回顾客这一侧，也更符合本轮练习目标。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "choose_item":
+                return [
+                    self._build_tip(
+                        tip_type="next_step",
+                        title="这一步可以再推进半步",
+                        message_cn="你已经把商品说清楚了，这一句可以继续主动问价格。",
+                        example_en=self._shopping_price_question(current_item or "doll"),
+                        reason_cn="老师这一句更希望你把对话推进到问价。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "choose_item_keyword":
+                return [
+                    self._build_tip(
+                        tip_type="next_step",
+                        title="这一步更适合直接问价格",
+                        message_cn="这里已经不需要再重复商品名了，可以直接把价格问出来。",
+                        example_en=self._shopping_price_question(current_item or "doll"),
+                        reason_cn="这样会更贴近当前这一步真正要练的动作。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "ask_price":
+                return [
+                    self._build_tip(
+                        tip_type="next_step",
+                        title="这一步推进得不错",
+                        message_cn="你已经主动问价格了。这一句就已经答到点上了，接下来可以继续决定买不买。",
+                        example_en=self._shopping_price_question(current_item or "doll"),
+                        reason_cn="真实购物对话里，问完价格后通常会进入购买决定。",
+                        optional_next_en="I will take it.",
+                        secondary_next_en="No, thank you.",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+
+        if expected_move == "accept_or_decline":
+            if actual_move in {"accept_item", "decline_item"}:
+                decision_example = "I will take it." if actual_move == "accept_item" else "No, thank you."
+                return [
+                    self._build_tip(
+                        tip_type="next_step",
+                        title="这一步回答到位了",
+                        message_cn="你已经做出了购买决定，下一句可以付款、致谢或自然收尾。",
+                        example_en=decision_example,
+                        reason_cn="这会让购物对话更完整。",
+                        optional_next_en="Here is the money." if actual_move == "accept_item" else "Thank you.",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "ask_price":
+                return [
+                    self._build_tip(
+                        tip_type="stay_on_task",
+                        title="这一步更适合做购买决定",
+                        message_cn="价格已经出来了，这里更适合决定买不买，而不是再回到问价。",
+                        example_en="I will take it.",
+                        reason_cn="这样更符合当前这一轮老师在等你的回应。",
+                        optional_next_en="No, thank you.",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+
+        if expected_move == "pay_and_close":
+            if actual_move == "pay":
+                return [
+                    self._build_tip(
+                        tip_type="next_step",
+                        title="这一步已经很完整了",
+                        message_cn="你已经完成付款，下一句可以礼貌地结束对话。",
+                        example_en="Here is the money.",
+                        reason_cn="这样会让这一轮收得更自然。",
+                        optional_next_en="Thank you. Goodbye!",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "thanks":
+                return [
+                    self._build_tip(
+                        tip_type="sound_more_natural",
+                        title="这一步可以再补一个动作",
+                        message_cn="如果前面已经买下来了，除了致谢，也可以把付款表达说出来。",
+                        example_en="Here is the money.",
+                        reason_cn="这样会更贴近完整的购物收尾。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+
+        if self._sounds_like_customer_price_answer(lowered_student):
+            prompt_item = current_item or "it"
             return [
-                {
-                    "title": "这一步做得不错",
-                    "message_cn": "你已经用上了礼貌表达，下一句可以自然结束对话。",
-                    "example_en": "Goodbye!",
-                    "reason_cn": "礼貌收尾会让购物对话更完整。",
-                }
+                self._build_tip(
+                    tip_type="stay_on_task",
+                    title="这一步可以换成顾客会说的话",
+                    message_cn="在购物对话里，价格通常由店员来回答。你先问价格，会更像真实对话。",
+                    example_en=self._shopping_price_question(prompt_item) if prompt_item != "it" else "How much is it?",
+                    reason_cn="这样能把学生放回顾客这一侧，也更符合本轮练习目标。",
+                    expected_move=expected_move,
+                    actual_move=actual_move,
+                )
             ]
 
         return []
@@ -679,35 +813,113 @@ class PracticeService:
         items = policy.get("items", []) if isinstance(policy, dict) else []
         lowered_student = " ".join(student_message.split()).strip().lower()
         current_item = self._detect_item_in_text(lowered_student, items) or self._last_anchor_item(history, items)
+        expected_move = self._infer_deictic_expected_move(history)
+        actual_move = self._infer_deictic_actual_move(lowered_student, current_item)
 
-        if current_item and "they are" not in lowered_student and "they're" not in lowered_student:
-            return [
-                {
-                    "title": "这一步可以更完整",
-                    "message_cn": "如果你知道答案，可以试着用完整句来回答。",
-                    "example_en": f"They're {current_item}.",
-                    "reason_cn": "这一轮重点是练习完整地说出这些东西是什么。",
-                }
-            ]
+        if expected_move == "name_object":
+            if actual_move == "yes_no_only":
+                return [
+                    self._build_tip(
+                        tip_type="stay_on_task",
+                        title="这一步更适合直接说出它们是什么",
+                        message_cn="老师这一句是在问这些东西是什么，所以比起 yes / no，更适合直接说名称。",
+                        example_en=f"They're {current_item}." if current_item else "They're carrots.",
+                        reason_cn="这样会更贴近当前这一轮的回答目标。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "item_keyword":
+                return [
+                    self._build_tip(
+                        tip_type="make_it_full",
+                        title="这句话可以更完整一点",
+                        message_cn="你已经说对了物品名，再补成完整句会更像自然回答。",
+                        example_en=f"They're {current_item}.",
+                        reason_cn="这一轮练的是“看到这些东西后，用完整句说出它们是什么”。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "item_full":
+                next_item = self._next_item(items, current_item) or current_item
+                return [
+                    self._build_tip(
+                        tip_type="next_step",
+                        title="这一步做得不错",
+                        message_cn="你已经用完整句回答了，下一步可以继续练判断句，或者换一组新物品。",
+                        example_en=f"They're {current_item}.",
+                        reason_cn="这一类单元通常会在“命名”和“判断”之间切换练习。",
+                        optional_next_en=f"Are these {next_item}?",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
 
-        if self._is_yes_no_negative(lowered_student):
-            return [
-                {
-                    "title": "这一步可以再往前走",
-                    "message_cn": "回答完 yes/no 之后，也可以顺手补出真正的名称。",
-                    "example_en": assistant_message,
-                    "reason_cn": "这样会让表达更完整，也更贴近教材目标句型。",
-                }
-            ]
+        if expected_move == "judge_yes_no":
+            if actual_move == "item_keyword":
+                prefix = "No, they aren't." if current_item else "No, they aren't."
+                return [
+                    self._build_tip(
+                        tip_type="stay_on_task",
+                        title="这一步可以先做判断",
+                        message_cn="老师这一句更希望你先判断对不对，再补名称会更完整。",
+                        example_en=f"{prefix} They're {current_item}." if current_item else "No, they aren't. They're carrots.",
+                        reason_cn="先给 yes / no，再补名称，会更贴近当前这一轮。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "yes_no_only_negative":
+                example = f"No, they aren't. They're {current_item}." if current_item else "No, they aren't. They're carrots."
+                return [
+                    self._build_tip(
+                        tip_type="make_it_full",
+                        title="这一步可以再多说半句",
+                        message_cn="只回答 yes / no 已经不错了，再补出真正的名称会更完整。",
+                        example_en=example,
+                        reason_cn="这样既保留判断句，也把答案说完整了。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "yes_no_only_positive":
+                return [
+                    self._build_tip(
+                        tip_type="sound_more_natural",
+                        title="这一步可以更自然",
+                        message_cn="如果老师是在让你判断，对应地用完整的 yes 句会更自然。",
+                        example_en="Yes, they are.",
+                        reason_cn="完整回答会比只说 yes 更清楚。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "item_full":
+                return [
+                    self._build_tip(
+                        tip_type="stay_on_task",
+                        title="这一步可以先判断再补名称",
+                        message_cn="你已经说出答案了，但这一句更适合先给 yes / no，再决定要不要补名称。",
+                        example_en="No, they aren't.",
+                        reason_cn="这样更贴近老师这一轮真正期待的回答形式。",
+                        optional_next_en=f"They're {current_item}." if current_item else "",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
 
-        if current_item and ("they are" in lowered_student or "they're" in lowered_student):
+        if current_item and self._looks_like_incomplete_reply(lowered_student):
             return [
-                {
-                    "title": "这一步做得不错",
-                    "message_cn": "你已经用完整句回答了，下一步可以继续练判断句。",
-                    "example_en": f"Are these {current_item}?",
-                    "reason_cn": "这一单元通常会在命名和判断之间切换练习。",
-                }
+                self._build_tip(
+                    tip_type="make_it_full",
+                    title="这句话可以更完整一点",
+                    message_cn="你已经说对了物品名，再补成完整句会更像自然回答。",
+                    example_en=f"They're {current_item}.",
+                    reason_cn="这一轮练的是“看到这些东西后，用完整句说出它们是什么”。",
+                    expected_move=expected_move,
+                    actual_move=actual_move,
+                )
             ]
 
         return []
@@ -722,26 +934,201 @@ class PracticeService:
         last_assistant = next((message for message in reversed(history) if message.get("role") == "assistant"), {})
         last_prompt = last_assistant.get("content", "").lower()
         target_patterns = context.get("summary", {}).get("sentence_patterns", []) if isinstance(context, dict) else []
+        vocabulary = context.get("summary", {}).get("vocabulary", []) if isinstance(context, dict) else []
+        expected_move = self._infer_general_expected_move(last_prompt, target_patterns)
+        actual_move = self._infer_general_actual_move(expected_move, student_message, vocabulary)
+
+        if expected_move == "say_name":
+            guessed_name = self._guess_name_from_reply(student_message)
+            if actual_move == "name_keyword":
+                return [
+                    self._build_tip(
+                        tip_type="make_it_full",
+                        title="这句话可以更完整一点",
+                        message_cn="如果是在自我介绍，把名字放进完整句里会更自然。",
+                        example_en=f"My name is {guessed_name}." if guessed_name else "My name is Amy.",
+                        reason_cn="这样更贴近问名字这一步的自然回答方式。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "on_track":
+                current_example = f"My name is {guessed_name}." if guessed_name else "My name is Amy."
+                return [
+                    self._build_tip(
+                        tip_type="next_step",
+                        title="这一步回答到位了",
+                        message_cn="你已经完成了自我介绍，下一句可以轻松地继续问候或反问对方。",
+                        example_en=current_example,
+                        reason_cn="这样会让开场更像自然对话。",
+                        optional_next_en="Nice to meet you.",
+                        secondary_next_en="What is your name?",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+
+        if expected_move == "state_plan":
+            if actual_move == "keyword_only":
+                return [
+                    self._build_tip(
+                        tip_type="make_it_full",
+                        title="这句话可以更像完整回答",
+                        message_cn="如果在说计划，把动作放进 “I will ...” 里面会更自然。",
+                        example_en=self._weekend_plan_example(student_message, vocabulary),
+                        reason_cn="这样更贴近计划类单元里这一轮真正需要的回答方式。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "on_track":
+                current_example = self._weekend_plan_example(student_message, vocabulary)
+                return [
+                    self._build_tip(
+                        tip_type="next_step",
+                        title="这一步已经答对了",
+                        message_cn="你已经说出了计划，下一句可以再补一个地点、时间或同伴。",
+                        example_en=current_example,
+                        reason_cn="这样会让回答更完整，但不会太难。",
+                        optional_next_en="I will go to the park with my mom.",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+
+        if expected_move == "state_preference":
+            topic = self._detect_item_in_text(lowered_student, [str(item).lower() for item in vocabulary]) or self._first_non_empty(vocabulary) or "apples"
+            if actual_move == "keyword_only":
+                return [
+                    self._build_tip(
+                        tip_type="make_it_full",
+                        title="这一步可以更像完整回答",
+                        message_cn="如果是在表达喜好，可以直接把喜欢不喜欢说出来。",
+                        example_en=f"I like {topic}.",
+                        reason_cn="这样会更贴近“Do you like ...?” 这一类问答。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "yes_no_only":
+                return [
+                    self._build_tip(
+                        tip_type="sound_more_natural",
+                        title="这一步可以更自然",
+                        message_cn="只说 yes / no 也可以，但再补半句会更像真实对话。",
+                        example_en=f"Yes, I do. I like {topic}.",
+                        reason_cn="这样既完成判断，也顺手把喜好说清楚。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+
+        if expected_move == "give_location":
+            if actual_move == "question_back":
+                return [
+                    self._build_tip(
+                        tip_type="stay_on_task",
+                        title="这一步更适合回答位置",
+                        message_cn="老师这一句是在问地点，所以这里更适合直接回答位置，而不是重复问题。",
+                        example_en=self._location_answer_example(target_patterns, vocabulary),
+                        reason_cn="当前这一轮需要的是“回答在哪里”，不是再问一次“在哪里”。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "keyword_only":
+                return [
+                    self._build_tip(
+                        tip_type="make_it_full",
+                        title="这句话可以再完整一点",
+                        message_cn="如果你知道位置，可以把地点放进完整句里。",
+                        example_en=self._location_answer_example(target_patterns, vocabulary),
+                        reason_cn="这样会更贴近位置问答里的自然回答。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+            if actual_move == "on_track":
+                current_example = self._location_answer_example(target_patterns, vocabulary)
+                return [
+                    self._build_tip(
+                        tip_type="next_step",
+                        title="这一步回答得不错",
+                        message_cn="你已经说出了位置，下一句可以继续确认对方有没有听懂。",
+                        example_en=current_example,
+                        reason_cn="位置类单元通常会继续补一个方向或确认句。",
+                        optional_next_en="It is next to the library.",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+
+        if expected_move == "name_object":
+            if actual_move == "keyword_only":
+                return [
+                    self._build_tip(
+                        tip_type="make_it_full",
+                        title="这句话可以更完整一点",
+                        message_cn="如果老师是在问这是什么，把物品放进完整句里会更自然。",
+                        example_en=self._object_answer_example(target_patterns, student_message),
+                        reason_cn="这样会更贴近“问物品名称”这一轮的回答方式。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
+
+        if expected_move == "answer_yes_no":
+            if actual_move not in {"yes_no_only", "yes_no_plus_detail", "on_track"}:
+                return [
+                    self._build_tip(
+                        tip_type="stay_on_task",
+                        title="这一步可以先做判断",
+                        message_cn="老师这一句更希望你先回答 yes 或 no，再决定要不要补细节。",
+                        example_en="Yes, it is.",
+                        reason_cn="这样会更贴近当前这一轮最直接的回答方式。",
+                        optional_next_en="No, it isn't.",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
 
         if "what is your name" in last_prompt and "my name" not in lowered_student and "i am" not in lowered_student:
             return [
-                {
-                    "title": "这一步可以更完整",
-                    "message_cn": "如果是在自我介绍，可以把名字放进完整句里。",
-                    "example_en": "My name is Amy.",
-                    "reason_cn": "这样会更贴近本轮目标句型。",
-                }
+                self._build_tip(
+                    tip_type="make_it_full",
+                    title="这句话可以更完整一点",
+                    message_cn="如果是在自我介绍，把名字放进完整句里会更自然。",
+                    example_en=f"My name is {guessed_name}." if guessed_name else "My name is Amy.",
+                    reason_cn="这样更贴近问名字这一步的自然回答方式。",
+                    expected_move=expected_move,
+                    actual_move=actual_move,
+                )
+            ]
+
+        if self._looks_like_incomplete_reply(lowered_student) and target_patterns:
+            return [
+                self._build_tip(
+                    tip_type="make_it_full",
+                    title="这句话可以再完整一点",
+                    message_cn="你已经开始回答了，再补成完整句，会更像真实对话。",
+                    example_en=self._general_response_example(expected_move, target_patterns, vocabulary, student_message),
+                    reason_cn="这里优先看“这一步该怎么答”，而不是直接套整单元的目标句型。",
+                    expected_move=expected_move,
+                    actual_move=actual_move,
+                )
             ]
 
         if target_patterns:
-            first_pattern = target_patterns[0]
             return [
-                {
-                    "title": "这一步可以试试",
-                    "message_cn": "你可以继续往本单元重点句型靠近一点。",
-                    "example_en": first_pattern,
-                    "reason_cn": "这样会更贴近当前单元的练习目标。",
-                }
+                self._build_tip(
+                    tip_type="next_step",
+                    title="这一步可以继续往前走",
+                    message_cn="你已经跟上了对话，下一轮可以继续把这一类回答说得更完整、更自然。",
+                    example_en=self._general_response_example(expected_move, target_patterns, vocabulary, student_message),
+                    reason_cn="这里先参考当前这一轮应该出现的回答形式。",
+                    expected_move=expected_move,
+                    actual_move=actual_move,
+                )
             ]
         return []
 
@@ -967,6 +1354,290 @@ class PracticeService:
         if item in {"sunglasses", "glasses"}:
             return f"How much are the {item}?"
         return f"How much is the {item}?"
+
+    def _shopping_choice_sentence(self, item: str) -> str:
+        if item in {"sunglasses", "glasses"} or item.endswith("s"):
+            return f"I want the {item}."
+        article = "an" if item[:1].lower() in {"a", "e", "i", "o", "u"} else "a"
+        return f"I want {article} {item}."
+
+    def _build_tip(
+        self,
+        *,
+        tip_type: str,
+        title: str,
+        message_cn: str,
+        example_en: str,
+        reason_cn: str,
+        optional_next_en: str = "",
+        secondary_next_en: str = "",
+        expected_move: str = "",
+        actual_move: str = "",
+    ) -> dict[str, str]:
+        example_label_cn = self._tip_example_label(tip_type, optional_next_en)
+        optional_label_cn = self._tip_optional_label(tip_type)
+        payload = {
+            "tip_type": tip_type,
+            "title": title,
+            "message_cn": message_cn,
+            "example_en": example_en,
+            "reason_cn": reason_cn,
+            "example_label_cn": example_label_cn,
+        }
+        if optional_next_en:
+            payload["optional_next_en"] = optional_next_en
+            payload["optional_next_label_cn"] = optional_label_cn
+        if secondary_next_en:
+            payload["secondary_next_en"] = secondary_next_en
+            payload["secondary_next_label_cn"] = "也可以这样接"
+        if expected_move:
+            payload["expected_move"] = expected_move
+        if actual_move:
+            payload["actual_move"] = actual_move
+        return payload
+
+    def _infer_shopping_expected_move(self, history: list[dict[str, str]], current_item: str) -> str:
+        if not history:
+            return "choose_item"
+        last_assistant = next((message for message in reversed(history) if message.get("role") == "assistant"), {})
+        prompt = last_assistant.get("content", "").lower()
+        if "what would you like to buy" in prompt or "what do you want to buy" in prompt:
+            return "choose_item"
+        if "ask me" in prompt and "how much" in prompt:
+            return "ask_price"
+        if "want to know the price" in prompt or "know the price" in prompt:
+            return "ask_price"
+        if "would you like to buy it" in prompt or "do you want to buy it" in prompt:
+            return "accept_or_decline"
+        if "yuan" in prompt or re.search(r"\b(it is|it's|they are|they're)\b", prompt):
+            return "accept_or_decline"
+        if "here is the money" in prompt or "thank you" in prompt or "goodbye" in prompt:
+            return "pay_and_close"
+        if current_item:
+            return "ask_price"
+        return "choose_item"
+
+    def _infer_shopping_actual_move(self, text: str, current_item: str, items: list[str]) -> str:
+        if "here is the money" in text:
+            return "pay"
+        if any(token in text for token in ["thank you", "thanks", "goodbye", "bye"]):
+            return "thanks"
+        if self._sounds_like_customer_price_answer(text):
+            return "price_answer"
+        if "how much" in text:
+            return "ask_price"
+        if any(token in text for token in ["i will take", "i'll take", "yes, please", "yes please", "no, thank", "no thank", "i don't want", "i do not want"]):
+            return "accept_item" if any(token in text for token in ["i will take", "i'll take", "yes, please", "yes please"]) else "decline_item"
+        if current_item and self._looks_like_incomplete_reply(text):
+            return "choose_item_keyword"
+        if current_item and any(token in text for token in ["want", "like", "take", "buy"]):
+            return "choose_item"
+        if self._detect_item_in_text(text, items) and self._looks_like_incomplete_reply(text):
+            return "choose_item_keyword"
+        return "other"
+
+    def _infer_deictic_expected_move(self, history: list[dict[str, str]]) -> str:
+        last_assistant = next((message for message in reversed(history) if message.get("role") == "assistant"), {})
+        prompt = last_assistant.get("content", "").lower()
+        if "are these" in prompt or "are those" in prompt:
+            return "judge_yes_no"
+        return "name_object"
+
+    def _infer_deictic_actual_move(self, text: str, current_item: str) -> str:
+        if self._is_yes_no_negative(text):
+            return "yes_no_only_negative"
+        if self._is_yes_no_positive(text):
+            return "yes_no_only_positive"
+        if current_item and ("they are" in text or "they're" in text):
+            return "item_full"
+        if current_item and current_item in text:
+            return "item_keyword"
+        return "other"
+
+    def _infer_general_expected_move(self, last_prompt: str, target_patterns: list[str]) -> str:
+        prompt = (last_prompt or "").lower()
+        patterns = " | ".join(target_patterns).lower()
+        if "what is your name" in prompt or "what's your name" in prompt:
+            return "say_name"
+        if "what will you do" in prompt or "what are you going to do" in prompt:
+            return "state_plan"
+        if "do you like" in prompt:
+            return "state_preference"
+        if "where is" in prompt or "where are" in prompt:
+            return "give_location"
+        if "what is this" in prompt or "what is that" in prompt or ("what are" in prompt and "these" not in prompt and "those" not in prompt):
+            return "name_object"
+        if prompt.startswith("is ") or prompt.startswith("are ") or " is it" in prompt or " are they" in prompt:
+            return "answer_yes_no"
+        if "where is" in patterns or "next to" in patterns or "behind" in patterns or "in front of" in patterns:
+            return "give_location"
+        return "general_response"
+
+    def _infer_general_actual_move(self, expected_move: str, student_message: str, vocabulary: list[str]) -> str:
+        text = " ".join(student_message.split()).strip().lower()
+        if not text:
+            return "empty"
+        if expected_move == "say_name":
+            if text.startswith("my name") or text.startswith("i am"):
+                return "on_track"
+            return "name_keyword"
+        if expected_move == "state_plan":
+            if text.startswith("i will"):
+                return "on_track"
+            return "keyword_only" if self._looks_like_incomplete_reply(text) else "other"
+        if expected_move == "state_preference":
+            if text.startswith("i like") or text.startswith("i don't like") or text.startswith("i do not like"):
+                return "on_track"
+            if self._is_yes_no_positive(text) or self._is_yes_no_negative(text):
+                return "yes_no_only"
+            return "keyword_only" if self._looks_like_incomplete_reply(text) else "other"
+        if expected_move == "give_location":
+            if "where is" in text or "where are" in text:
+                return "question_back"
+            if any(marker in text for marker in ["next to", "behind", "in front of", "on the left", "on the right", "between", "near"]):
+                return "on_track"
+            return "keyword_only" if self._looks_like_incomplete_reply(text) else "other"
+        if expected_move == "name_object":
+            if text.startswith("it is") or text.startswith("it's") or text.startswith("they are") or text.startswith("they're"):
+                return "on_track"
+            return "keyword_only" if self._looks_like_incomplete_reply(text) else "other"
+        if expected_move == "answer_yes_no":
+            if self._is_yes_no_positive(text) or self._is_yes_no_negative(text):
+                return "yes_no_only"
+            return "other"
+        return "on_track" if len(text.split()) >= 3 else "keyword_only"
+
+    def _general_response_example(
+        self,
+        expected_move: str,
+        target_patterns: list[str],
+        vocabulary: list[str],
+        student_message: str,
+    ) -> str:
+        if expected_move == "say_name":
+            guessed_name = self._guess_name_from_reply(student_message)
+            return f"My name is {guessed_name}." if guessed_name else "My name is Amy."
+        if expected_move == "state_plan":
+            return self._weekend_plan_example(student_message, vocabulary)
+        if expected_move == "state_preference":
+            topic = self._detect_item_in_text(student_message.lower(), [str(item).lower() for item in vocabulary]) or self._first_non_empty(vocabulary) or "apples"
+            return f"I like {topic}."
+        if expected_move == "give_location":
+            return self._location_answer_example(target_patterns, vocabulary)
+        if expected_move == "name_object":
+            return self._object_answer_example(target_patterns, student_message)
+        if expected_move == "answer_yes_no":
+            return "Yes, it is."
+        response_pattern = self._preferred_response_pattern(target_patterns)
+        return response_pattern or (target_patterns[0] if target_patterns else "I can say it in a full sentence.")
+
+    def _preferred_response_pattern(self, target_patterns: list[str]) -> str:
+        for pattern in target_patterns:
+            response_side = self._response_side_from_pattern(pattern)
+            if response_side:
+                return response_side
+        for pattern in target_patterns:
+            lowered = pattern.lower().strip()
+            if "?" not in lowered and "..." not in pattern:
+                return pattern
+        return ""
+
+    def _response_side_from_pattern(self, pattern: str) -> str:
+        parts = [part.strip() for part in re.split(r"\s*/\s*", pattern) if part.strip()]
+        if len(parts) < 2:
+            return ""
+        for candidate in parts[1:]:
+            lowered = candidate.lower()
+            if "?" in candidate:
+                continue
+            if any(lowered.startswith(prefix) for prefix in ["it is", "it's", "they are", "they're", "my name is", "i am", "i like", "i will", "yes", "no", "here is"]):
+                return candidate
+        return ""
+
+    def _location_answer_example(self, target_patterns: list[str], vocabulary: list[str]) -> str:
+        lowered_patterns = [pattern.lower() for pattern in target_patterns]
+        for pattern in target_patterns:
+            lowered = pattern.lower()
+            if any(marker in lowered for marker in ["next to", "behind", "in front of", "on the left", "on the right", "between", "near"]):
+                if "..." in pattern:
+                    continue
+                if "?" in pattern:
+                    continue
+                return pattern
+        target_place = self._first_non_empty(vocabulary) or "the library"
+        if not str(target_place).startswith("the "):
+            target_place = f"the {target_place}"
+        return f"It is next to {target_place}."
+
+    def _object_answer_example(self, target_patterns: list[str], student_message: str) -> str:
+        candidate = re.sub(r"[^A-Za-z ]", " ", student_message).strip().lower()
+        word = candidate.split()[0] if candidate.split() else "desk"
+        article = "an" if word[:1] in {"a", "e", "i", "o", "u"} else "a"
+        for pattern in target_patterns:
+            lowered = pattern.lower()
+            if lowered.startswith("it is") or lowered.startswith("it's"):
+                if "..." not in pattern and "?" not in pattern:
+                    return pattern
+        return f"It is {article} {word}."
+
+    def _tip_example_label(self, tip_type: str, optional_next_en: str) -> str:
+        if tip_type == "next_step" and optional_next_en:
+            return "这一步可以这样答"
+        if tip_type == "sound_more_natural":
+            return "更自然的说法"
+        return "可以这样说"
+
+    def _tip_optional_label(self, tip_type: str) -> str:
+        if tip_type == "next_step":
+            return "接着还可以这样说"
+        return "还可以这样说"
+
+    def _sounds_like_customer_price_answer(self, text: str) -> bool:
+        if "yuan" in text:
+            return True
+        if re.search(r"\b(it is|it's|they are|they're)\b", text) and re.search(r"\b\d+\b", text):
+            return True
+        return False
+
+    def _looks_like_incomplete_reply(self, text: str) -> bool:
+        words = re.findall(r"[a-zA-Z']+", text)
+        if not words:
+            return False
+        if self._is_yes_no_positive(text) or self._is_yes_no_negative(text):
+            return False
+        if any(
+            text.startswith(prefix)
+            for prefix in ["i ", "i'", "my ", "it ", "it's", "it is", "they ", "they'", "yes", "no", "hello", "hi"]
+        ):
+            return False
+        return len(words) <= 4
+
+    def _guess_name_from_reply(self, student_message: str) -> str:
+        candidate = re.sub(r"[^A-Za-z -]", " ", student_message).strip()
+        if not candidate:
+            return ""
+        candidate = re.sub(r"^\s*my\s+name\s+is\s+", "", candidate, flags=re.IGNORECASE)
+        candidate = re.sub(r"^\s*i\s+am\s+", "", candidate, flags=re.IGNORECASE)
+        parts = [part for part in candidate.split() if part]
+        if not parts:
+            return ""
+        return " ".join(part.capitalize() for part in parts[:2])
+
+    def _weekend_plan_example(self, student_message: str, vocabulary: list[str]) -> str:
+        lowered = student_message.lower()
+        place = self._detect_item_in_text(lowered, [str(item).lower() for item in vocabulary])
+        if place:
+            if place.startswith("the "):
+                return f"I will go to {place}."
+            return f"I will go to the {place}."
+        return "I will go to the park."
+
+    def _first_non_empty(self, items: list[Any]) -> str:
+        for item in items:
+            value = str(item or "").strip()
+            if value:
+                return value
+        return ""
 
     def _message_role(self, item: Any) -> str:
         if isinstance(item, dict):
