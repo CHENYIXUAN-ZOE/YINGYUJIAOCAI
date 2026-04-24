@@ -162,6 +162,111 @@ def test_build_unit_package_fallback_uses_real_extracted_content(tmp_path):
     assert any("school" in basis.lower() for basis in package.unit_prompt.source_basis)
 
 
+def test_build_unit_package_recovers_from_schema_mismatch_with_rule_fallback(tmp_path, monkeypatch):
+    settings = build_settings(tmp_path, allow_placeholder_fallback=False)
+    generator = UnitContentGenerator(settings)
+    unit_record = UnitRecord(
+        unit_id="job_demo_unit_2",
+        classification=Classification(
+            textbook_version="北师大版",
+            textbook_name="北师大版英语 3A",
+            unit_code="Unit 2",
+            unit_name="My School",
+        ),
+        unit_theme="My School",
+        source_pages=[6, 7],
+    )
+    raw_unit = {
+        "unit_code": "Unit 2",
+        "unit_name": "My School",
+        "unit_theme": "My School",
+        "source_pages": [6, 7],
+        "lines": [
+            "Words",
+            "school n. 学校",
+            "classroom n. 教室",
+            "Key Sentences",
+            "Where is the library?",
+            "This is our classroom.",
+            "Listen and say",
+            "A: Where is the library?",
+            "B: It is next to the classroom.",
+        ],
+        "section_lines": {
+            "vocabulary": ["school n. 学校", "classroom n. 教室"],
+            "sentence_patterns": ["Where is the library?", "This is our classroom."],
+            "dialogue_samples": ["A: Where is the library?", "B: It is next to the classroom."],
+        },
+    }
+
+    monkeypatch.setattr(generator, "_vertex_ai_ready", lambda: True)
+
+    def fail_vertex(*_args, **_kwargs):
+        raise AppError("GEMINI_SCHEMA_MISMATCH", "Gemini returned an unexpected schema", status_code=502)
+
+    monkeypatch.setattr(generator, "_build_with_vertex_ai", fail_vertex)
+
+    package = generator.build_unit_package(unit_record, raw_unit)
+
+    assert [item.word for item in package.vocabulary] == ["school", "classroom"]
+    assert package.dialogue_samples[0].turns[0].text_en == "Where is the library?"
+
+
+def test_repair_model_payload_salvages_loose_sections_before_validation(tmp_path):
+    settings = build_settings(tmp_path)
+    generator = UnitContentGenerator(settings)
+    unit_record = UnitRecord(
+        unit_id="job_demo_unit_4",
+        classification=Classification(
+            textbook_version="北师大版",
+            textbook_name="北师大版英语 4B",
+            unit_code="Unit 3",
+            unit_name="Fruits",
+        ),
+        unit_theme="Fruits",
+        source_pages=[8, 9],
+    )
+    raw_unit = {
+        "unit_code": "Unit 3",
+        "unit_name": "Fruits",
+        "unit_theme": "Fruits",
+        "source_pages": [8, 9],
+        "lines": [
+            "Words",
+            "apple n. 苹果",
+            "pear n. 梨",
+            "Key Sentences",
+            "Do you like apples?",
+            "Yes, I do.",
+            "Listen and say",
+            "A: Do you like apples?",
+            "B: Yes, I do.",
+        ],
+        "section_lines": {
+            "vocabulary": ["apple n. 苹果", "pear n. 梨"],
+            "sentence_patterns": ["Do you like apples?", "Yes, I do."],
+            "dialogue_samples": ["A: Do you like apples?", "B: Yes, I do."],
+        },
+    }
+    payload = {
+        "unit_theme": " Fruits ",
+        "vocabulary": ["apple"],
+        "sentence_patterns": [{"text": "Do you like apples?", "example_sentences": "Yes, I do."}],
+        "dialogue_samples": ["A: Do you like apples?\nB: Yes, I do."],
+        "unit_task": "Talk about fruits",
+        "unit_prompt": {"theme": "Fruits", "rules": "Do you like apples?"},
+    }
+
+    repaired = generator._repair_model_payload(unit_record, raw_unit, payload)
+    package = generator._payload_to_unit_package(unit_record, [8, 9], repaired)
+
+    assert package.vocabulary[0].word == "apple"
+    assert package.sentence_patterns[0].pattern == "Do you like apples?"
+    assert package.dialogue_samples[0].turns[0].speaker == "A"
+    assert package.unit_task.task_intro == "Talk about fruits"
+    assert package.unit_prompt.unit_theme == "Fruits"
+
+
 def test_payload_to_unit_package_normalizes_dialogue_turns(tmp_path):
     settings = build_settings(tmp_path)
     generator = UnitContentGenerator(settings)
