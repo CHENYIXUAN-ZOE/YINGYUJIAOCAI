@@ -12,6 +12,7 @@ from pathlib import Path
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.services.parser.heuristics import normalize_line
+from app.services.parser.pdf_preflight import assess_text_sample
 
 _RENDERED_PAGE_PATTERN = re.compile(r"page-(\d+)\.png$")
 _PAGE_COUNT_PATTERN = re.compile(r"^Pages:\s+(\d+)\s*$", re.MULTILINE)
@@ -48,7 +49,7 @@ def process(document: dict, progress_callback=None) -> dict:
     settings = get_settings()
     _rebuild_document_text(document, document.get("page_texts") or [])
 
-    if _should_use_embedded_text(document):
+    if _should_use_embedded_text(document, settings):
         document["ocr_used"] = False
         document["ocr_backend"] = document.get("extractor") or "pdf_text"
         document["page_count"] = _resolve_page_count(document)
@@ -100,10 +101,14 @@ def _rebuild_document_text(document: dict, page_texts: list[str]) -> dict:
     return document
 
 
-def _should_use_embedded_text(document: dict) -> bool:
+def _should_use_embedded_text(document: dict, settings: Settings) -> bool:
     if document.get("extractor") != "pdftotext":
         return False
-    return any(str(page_text or "").strip() for page_text in document.get("page_texts") or [])
+    page_texts = [str(page_text or "") for page_text in document.get("page_texts") or []]
+    if not any(page_text.strip() for page_text in page_texts):
+        return False
+    sample_text = "\n".join(page_texts[: max(1, min(settings.preflight_sample_pages, len(page_texts)))])
+    return assess_text_sample(sample_text).usable_text_layer
 
 
 def _ocr_api_ready(settings: Settings) -> bool:
