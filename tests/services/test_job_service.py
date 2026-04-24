@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import Executor, Future
 import zipfile
 
 import pytest
@@ -122,6 +123,16 @@ class StubUnitContentGenerator:
         )
 
 
+class ImmediateExecutor(Executor):
+    def submit(self, fn, /, *args, **kwargs):
+        future = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except Exception as exc:  # pragma: no cover - delegated to assertions
+            future.set_exception(exc)
+        return future
+
+
 def build_service(settings: Settings, generator: StubUnitContentGenerator) -> JobService:
     return JobService(
         upload_dir=settings.upload_dir,
@@ -131,6 +142,7 @@ def build_service(settings: Settings, generator: StubUnitContentGenerator) -> Jo
         review_repo=ReviewRepository(settings),
         export_repo=ExportRepository(settings),
         unit_content_generator=generator,
+        executor=ImmediateExecutor(),
     )
 
 
@@ -165,6 +177,41 @@ def test_start_parse_persists_generated_result(tmp_path, monkeypatch):
     payload = service.get_result(job.job_id)
     assert payload["units"][0]["unit"]["classification"]["unit_name"] == "My Family"
     assert payload["units"][0]["vocabulary"][0]["word"] == "family"
+    status = service.get_job_status(job.job_id)
+    assert status.status_label == "待审核"
+    assert status.phase_label == "结果已生成"
+    assert status.unit_total == 1
+    assert status.unit_done == 1
+
+
+def test_queue_parse_returns_queued_job_and_finishes_in_background(tmp_path, monkeypatch):
+    settings = build_settings(tmp_path)
+    patch_parse_pipeline(monkeypatch)
+    service = build_service(settings, StubUnitContentGenerator())
+
+    job = service.create_job("sample.pdf", b"%PDF-1.4")
+    queued_job = service.queue_parse(job.job_id)
+
+    assert queued_job.status == ParseStatus.queued
+    assert queued_job.phase == "queued"
+
+    finished_job = service.get_job(job.job_id)
+    assert finished_job.status == ParseStatus.reviewing
+    assert finished_job.phase == "review_ready"
+    assert finished_job.started_at is not None
+    assert finished_job.updated_at is not None
+
+
+def test_get_result_rejects_job_before_parse_finishes(tmp_path):
+    settings = build_settings(tmp_path)
+    service = build_service(settings, StubUnitContentGenerator())
+
+    job = service.create_job("sample.pdf", b"%PDF-1.4")
+
+    with pytest.raises(AppError) as exc_info:
+        service.get_result(job.job_id)
+
+    assert exc_info.value.code == "PARSE_NOT_READY"
 
 
 def test_start_parse_marks_job_failed_when_generation_errors(tmp_path, monkeypatch):
@@ -241,10 +288,26 @@ def test_delete_job_rejects_processing_task(tmp_path):
     service = build_service(settings, StubUnitContentGenerator())
 
     job = service.create_job("sample.pdf", b"%PDF-1.4")
-    job.status = ParseStatus.parsing
+    job.status = ParseStatus.queued
     service.job_repo.save(job)
 
     with pytest.raises(AppError) as exc_info:
         service.delete_job(job.job_id)
 
     assert exc_info.value.code == "JOB_BUSY"
+
+
+def test_force_reparse_from_reviewing_increments_retry_count(tmp_path, monkeypatch):
+    settings = build_settings(tmp_path)
+    patch_parse_pipeline(monkeypatch)
+    service = build_service(settings, StubUnitContentGenerator())
+
+    job = service.create_job("sample.pdf", b"%PDF-1.4")
+    service.start_parse(job.job_id)
+
+    reparsed_job = service.queue_parse(job.job_id, force_reparse=True)
+
+    assert reparsed_job.retry_count == 1
+    finished_job = service.get_job(job.job_id)
+    assert finished_job.status == ParseStatus.reviewing
+    assert finished_job.retry_count == 1

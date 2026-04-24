@@ -16,7 +16,7 @@ def parse_job(
     request: ParseRequest,
     service: JobService = Depends(get_job_service),
 ):
-    job = service.start_parse(job_id, force_reparse=request.force_reparse)
+    job = service.queue_parse(job_id, force_reparse=request.force_reparse)
     return ApiResponse(data=job.model_dump(mode="json"))
 
 
