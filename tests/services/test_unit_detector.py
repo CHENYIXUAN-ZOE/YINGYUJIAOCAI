@@ -38,3 +38,31 @@ def test_detect_prefers_front_toc_cluster_over_word_list_like_pages():
     assert units[4]["unit_name"] == "My Things"
     assert units[5]["unit_code"] == "Unit 6"
     assert units[5]["source_pages"][0] == 64
+
+
+def test_detect_uses_filtered_page_lines_for_body_headers():
+    document = {
+        "stem": "sample",
+        "page_count": 6,
+        "page_lines": [
+            {"page_num": 1, "line": "English Book 3A"},
+            {"page_num": 2, "line": "English Book 3A"},
+            {"page_num": 3, "line": "English Book 3A"},
+        ],
+        "content_page_lines": [
+            {"page_num": 2, "line": "Unit 1 My Family"},
+            {"page_num": 2, "line": "Lesson 1"},
+            {"page_num": 3, "line": "Who is he?"},
+            {"page_num": 4, "line": "Unit 2 My School"},
+            {"page_num": 4, "line": "Lesson 1"},
+            {"page_num": 5, "line": "This is my school."},
+        ],
+    }
+
+    units = detect(document)
+
+    assert len(units) == 2
+    assert units[0]["unit_code"] == "Unit 1"
+    assert units[0]["source_pages"] == [2, 3]
+    assert units[1]["unit_code"] == "Unit 2"
+    assert units[1]["source_pages"] == [4, 5]
