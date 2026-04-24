@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import re
 from typing import Any
 
@@ -111,6 +112,48 @@ _CHINESE_GRADE_MAP = {
     "五年级": 5,
     "六年级": 6,
 }
+
+
+@dataclass
+class PracticeTurnPlan:
+    scenario_type: str
+    step_id: str
+    expected_move: str
+    current_examples: list[str] = field(default_factory=list)
+    next_examples: list[str] = field(default_factory=list)
+    context_data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PracticeSessionState:
+    scenario_type: str
+    current_step_id: str
+    expected_move: str
+    focused_prompt: str
+    recent_user_turns: int
+
+
+@dataclass
+class PracticeTurnDiagnosis:
+    expected_move: str
+    actual_move: str
+    task_status: str
+    language_status: str
+    tip_type: str
+    title: str
+    message_cn: str
+    current_examples: list[str] = field(default_factory=list)
+    next_examples: list[str] = field(default_factory=list)
+
+
+@dataclass
+class PracticeTipDecision:
+    show_tip: bool
+    tip_type: str = ""
+    title: str = ""
+    message_cn: str = ""
+    current_examples: list[str] = field(default_factory=list)
+    next_examples: list[str] = field(default_factory=list)
 
 
 class PracticeService:
@@ -300,17 +343,33 @@ class PracticeService:
             items = self._extract_shopping_items(unit_package)
             return {
                 "type": "shopping_roleplay",
+                "scenario_type": "shopping_price",
                 "items": items,
                 "price_answers": self._extract_shopping_price_answers(unit_package, items),
+                "turn_flow": [
+                    {"step_id": "choose_item", "expected_move": "choose_item"},
+                    {"step_id": "ask_price", "expected_move": "ask_price"},
+                    {"step_id": "accept_or_decline", "expected_move": "accept_or_decline"},
+                    {"step_id": "pay_and_close", "expected_move": "pay_and_close"},
+                ],
             }
         if self._is_deictic_identification_unit(unit_context):
             items = self._extract_deictic_items(unit_package)
             return {
                 "type": "deictic_identification",
+                "scenario_type": "deictic_identification",
                 "items": items,
                 "topic": str(unit_context.get("unit_theme", "") or unit_context.get("unit_name", "") or "these things").strip(),
+                "turn_flow": [
+                    {"step_id": "name_object", "expected_move": "name_object"},
+                    {"step_id": "judge_yes_no", "expected_move": "answer_yes_no"},
+                ],
             }
-        return {"type": "default"}
+        return {
+            "type": "default",
+            "scenario_type": self._infer_default_scenario_type(unit_context),
+            "turn_flow": [],
+        }
 
     def _build_practice_guidance(
         self,
@@ -340,6 +399,25 @@ class PracticeService:
                 ]
             )
         return guidance
+
+    def _infer_default_scenario_type(self, unit_context: dict[str, Any]) -> str:
+        joined = " ".join(
+            [
+                str(unit_context.get("unit_name", "") or ""),
+                str(unit_context.get("unit_theme", "") or ""),
+                str(unit_context.get("unit_task", "") or ""),
+                " | ".join(unit_context.get("key_sentence_patterns", []) or []),
+            ]
+        ).lower()
+        if "favorite" in joined or "favourite" in joined or "like" in joined or "喜欢" in joined:
+            return "likes_preferences"
+        if "where is" in joined or "next to" in joined or "behind" in joined or "位置" in joined:
+            return "location_direction"
+        if "what is your name" in joined or "my name is" in joined or "打招呼" in joined:
+            return "greeting_intro"
+        if "what will you do" in joined or "i will" in joined or "计划" in joined:
+            return "daily_plan"
+        return "general_dialogue"
 
     def _detect_grade_band(self, file_name: str, payload: dict[str, Any], unit_package: dict[str, Any]) -> str:
         candidates = [
@@ -591,15 +669,419 @@ class PracticeService:
 
         policy = context.get("policy", {}) if isinstance(context, dict) else {}
         history = self._normalize_history(prior_messages)
+        plan = self._build_turn_plan(context, policy, history, student_message)
+        state = self._build_session_state(plan, history)
+        diagnosis = self._diagnose_turn(context, policy, plan, state, history, student_message)
+        decision = self._decide_turn_tip(diagnosis)
+        if not decision.show_tip:
+            return {"has_tip": False, "tips": []}
+        tip = self._render_tip_decision(diagnosis, decision)
+        return {"has_tip": bool(tip), "tips": [tip] if tip else []}
 
-        if policy.get("type") == "shopping_roleplay":
-            tips = self._build_shopping_turn_tips(policy, history, student_message, assistant_message)
-        elif policy.get("type") == "deictic_identification":
-            tips = self._build_deictic_turn_tips(policy, history, student_message, assistant_message)
-        else:
-            tips = self._build_general_turn_tips(context, history, student_message)
+    def _build_turn_plan(
+        self,
+        context: dict[str, Any],
+        policy: dict[str, Any],
+        history: list[dict[str, str]],
+        student_message: str,
+    ) -> PracticeTurnPlan:
+        policy_type = policy.get("type") if isinstance(policy, dict) else "default"
+        if policy_type == "shopping_roleplay":
+            return self._build_shopping_turn_plan(policy, history, student_message)
+        if policy_type == "deictic_identification":
+            return self._build_deictic_turn_plan(policy, history, student_message)
+        return self._build_general_turn_plan(context, policy, history, student_message)
 
-        return {"has_tip": bool(tips), "tips": tips[:2]}
+    def _build_session_state(self, plan: PracticeTurnPlan, history: list[dict[str, str]]) -> PracticeSessionState:
+        last_assistant = next((message for message in reversed(history) if message.get("role") == "assistant"), {})
+        focused_prompt = self._focus_prompt(last_assistant.get("content", ""))
+        recent_user_turns = sum(1 for item in history if item.get("role") == "user")
+        return PracticeSessionState(
+            scenario_type=plan.scenario_type,
+            current_step_id=plan.step_id,
+            expected_move=plan.expected_move,
+            focused_prompt=focused_prompt,
+            recent_user_turns=recent_user_turns,
+        )
+
+    def _diagnose_turn(
+        self,
+        context: dict[str, Any],
+        policy: dict[str, Any],
+        plan: PracticeTurnPlan,
+        state: PracticeSessionState,
+        history: list[dict[str, str]],
+        student_message: str,
+    ) -> PracticeTurnDiagnosis:
+        policy_type = policy.get("type") if isinstance(policy, dict) else "default"
+        if policy_type == "shopping_roleplay":
+            return self._diagnose_shopping_turn(plan, state, history, student_message)
+        if policy_type == "deictic_identification":
+            return self._diagnose_deictic_turn(plan, state, history, student_message)
+        return self._diagnose_general_turn(context, plan, state, history, student_message)
+
+    def _decide_turn_tip(self, diagnosis: PracticeTurnDiagnosis) -> PracticeTipDecision:
+        show_tip = diagnosis.task_status != "on_track" or diagnosis.language_status != "ok"
+        if not show_tip or not diagnosis.current_examples:
+            return PracticeTipDecision(show_tip=False)
+        return PracticeTipDecision(
+            show_tip=True,
+            tip_type=diagnosis.tip_type,
+            title=diagnosis.title,
+            message_cn=diagnosis.message_cn,
+            current_examples=diagnosis.current_examples,
+            next_examples=diagnosis.next_examples,
+        )
+
+    def _render_tip_decision(
+        self,
+        diagnosis: PracticeTurnDiagnosis,
+        decision: PracticeTipDecision,
+    ) -> dict[str, str]:
+        current_example = decision.current_examples[0] if decision.current_examples else ""
+        next_example = decision.next_examples[0] if decision.next_examples else ""
+        secondary_next = decision.next_examples[1] if len(decision.next_examples) > 1 else ""
+        return self._build_tip(
+            tip_type=decision.tip_type,
+            title=decision.title,
+            message_cn=decision.message_cn,
+            example_en=current_example,
+            reason_cn="stateful diagnosis",
+            optional_next_en=next_example,
+            secondary_next_en=secondary_next,
+            expected_move=diagnosis.expected_move,
+            actual_move=diagnosis.actual_move,
+        )
+
+    def _build_shopping_turn_plan(
+        self,
+        policy: dict[str, Any],
+        history: list[dict[str, str]],
+        student_message: str,
+    ) -> PracticeTurnPlan:
+        items = policy.get("items", []) if isinstance(policy, dict) else []
+        lowered_student = " ".join(student_message.split()).strip().lower()
+        current_item = (
+            self._detect_item_in_text(lowered_student, items)
+            or self._last_student_item(history, items)
+            or self._last_referenced_item(history, items)
+            or "doll"
+        )
+        step_id = self._infer_shopping_expected_move(history, current_item)
+        current_examples, next_examples = self._shopping_step_examples(step_id, current_item)
+        return PracticeTurnPlan(
+            scenario_type=str(policy.get("scenario_type", "shopping_price")),
+            step_id=step_id,
+            expected_move=step_id,
+            current_examples=current_examples,
+            next_examples=next_examples,
+            context_data={"current_item": current_item, "items": items},
+        )
+
+    def _build_deictic_turn_plan(
+        self,
+        policy: dict[str, Any],
+        history: list[dict[str, str]],
+        student_message: str,
+    ) -> PracticeTurnPlan:
+        items = policy.get("items", []) if isinstance(policy, dict) else []
+        lowered_student = " ".join(student_message.split()).strip().lower()
+        current_item = self._detect_item_in_text(lowered_student, items) or self._last_anchor_item(history, items) or (items[0] if items else "tomatoes")
+        expected_move = self._infer_deictic_expected_move(history)
+        step_id = "judge_yes_no" if expected_move == "judge_yes_no" else "name_object"
+        current_examples, next_examples = self._deictic_step_examples(step_id, current_item, items)
+        return PracticeTurnPlan(
+            scenario_type=str(policy.get("scenario_type", "deictic_identification")),
+            step_id=step_id,
+            expected_move=expected_move,
+            current_examples=current_examples,
+            next_examples=next_examples,
+            context_data={"current_item": current_item, "items": items},
+        )
+
+    def _build_general_turn_plan(
+        self,
+        context: dict[str, Any],
+        policy: dict[str, Any],
+        history: list[dict[str, str]],
+        student_message: str,
+    ) -> PracticeTurnPlan:
+        last_assistant = next((message for message in reversed(history) if message.get("role") == "assistant"), {})
+        last_prompt = last_assistant.get("content", "")
+        target_patterns = context.get("summary", {}).get("sentence_patterns", []) if isinstance(context, dict) else []
+        vocabulary = context.get("summary", {}).get("vocabulary", []) if isinstance(context, dict) else []
+        step_id = self._infer_general_step_id(last_prompt, target_patterns)
+        expected_move = self._step_expected_move(step_id)
+        current_examples, next_examples = self._general_step_examples(step_id, target_patterns, vocabulary, student_message)
+        return PracticeTurnPlan(
+            scenario_type=str(policy.get("scenario_type", "general_dialogue")),
+            step_id=step_id,
+            expected_move=expected_move,
+            current_examples=current_examples,
+            next_examples=next_examples,
+            context_data={"target_patterns": target_patterns, "vocabulary": vocabulary, "last_prompt": last_prompt},
+        )
+
+    def _diagnose_shopping_turn(
+        self,
+        plan: PracticeTurnPlan,
+        state: PracticeSessionState,
+        history: list[dict[str, str]],
+        student_message: str,
+    ) -> PracticeTurnDiagnosis:
+        lowered_student = " ".join(student_message.split()).strip().lower()
+        current_item = str(plan.context_data.get("current_item") or "doll")
+        items = plan.context_data.get("items", []) if isinstance(plan.context_data, dict) else []
+        actual_move = self._infer_shopping_actual_move(lowered_student, current_item, items)
+        if plan.step_id == "choose_item":
+            if actual_move == "choose_item":
+                return self._diagnosis_on_track(plan, actual_move)
+            if actual_move == "choose_item_keyword":
+                return self._diagnosis_with_tip(plan, actual_move, "under_complete", "incomplete_sentence", "make_it_full", "这句话可以更完整一点", "先把想买什么说成完整句，会更像自然对话。")
+            if actual_move == "ask_price":
+                return self._diagnosis_with_tip(plan, actual_move, "too_early", "ok", "too_early", "这一步先别跳太快", "老师这句先在问你想买什么，先把商品说出来会更顺。")
+            if actual_move == "price_answer":
+                return self._diagnosis_with_tip(plan, actual_move, "role_mismatch", "ok", "stay_on_task", "这一步更适合说商品", "这里先说顾客想买什么，不需要直接报价格。")
+            return self._diagnosis_with_tip(plan, actual_move, "off_target", "ok", "stay_on_task", "这一步先回到当前问题", "先回答想买什么，再继续往下聊会更自然。")
+        if plan.step_id == "ask_price":
+            if actual_move == "ask_price":
+                return self._diagnosis_on_track(plan, actual_move)
+            if actual_move in {"choose_item", "choose_item_keyword"}:
+                return self._diagnosis_with_tip(plan, actual_move, "off_target", "ok" if actual_move == "choose_item" else "incomplete_sentence", "stay_on_task", "这一步更适合直接问价格", "商品已经确定了，这一步更适合把价格问出来。")
+            if actual_move == "price_answer":
+                return self._diagnosis_with_tip(plan, actual_move, "role_mismatch", "ok", "stay_on_task", "这一步先别替店员回答", "这里更适合由顾客问价格，而不是直接报价格。")
+            return self._diagnosis_with_tip(plan, actual_move, "off_target", "ok", "stay_on_task", "这一步先回到问价格", "老师这句更希望你把价格问出来。")
+        if plan.step_id == "accept_or_decline":
+            if actual_move in {"accept_item", "decline_item"}:
+                return self._diagnosis_on_track(plan, actual_move)
+            if actual_move == "ask_price":
+                return self._diagnosis_with_tip(plan, actual_move, "too_early", "ok", "stay_on_task", "这一步更适合做决定", "价格已经出来了，这里更适合决定买不买。")
+            return self._diagnosis_with_tip(plan, actual_move, "off_target", "ok", "stay_on_task", "这一步先做购买决定", "这一轮更适合先回答买还是不买。")
+        if actual_move in {"pay", "thanks"}:
+            return self._diagnosis_on_track(plan, actual_move)
+        return self._diagnosis_with_tip(plan, actual_move, "off_target", "ok", "stay_on_task", "这一步可以自然收尾", "这里更适合付款、致谢或结束对话。")
+
+    def _diagnose_deictic_turn(
+        self,
+        plan: PracticeTurnPlan,
+        state: PracticeSessionState,
+        history: list[dict[str, str]],
+        student_message: str,
+    ) -> PracticeTurnDiagnosis:
+        lowered_student = " ".join(student_message.split()).strip().lower()
+        current_item = str(plan.context_data.get("current_item") or "tomatoes")
+        actual_move = self._infer_deictic_actual_move(lowered_student, current_item)
+        yes_no_kind = self._yes_no_reply_kind(lowered_student)
+        if plan.step_id == "name_object":
+            if actual_move == "item_full":
+                return self._diagnosis_on_track(plan, actual_move)
+            if actual_move == "item_keyword":
+                return self._diagnosis_with_tip(plan, actual_move, "under_complete", "incomplete_sentence", "make_it_full", "这句话可以更完整一点", "把物品名放进完整句里，会更像自然回答。")
+            return self._diagnosis_with_tip(plan, actual_move, "off_target", "ok", "stay_on_task", "这一步更适合直接说名称", "老师这一句是在问这些东西是什么，先直接说名称会更顺。")
+        if yes_no_kind == "sentence":
+            return self._diagnosis_on_track(plan, "yes_no_sentence")
+        if yes_no_kind == "bare":
+            polarity_example = "No, they aren't." if self._is_yes_no_negative(lowered_student) else "Yes, they are."
+            return self._diagnosis_with_tip(
+                plan,
+                "yes_no_only",
+                "under_complete",
+                "soft_naturalness_issue",
+                "sound_more_natural",
+                "这一步可以更自然",
+                "只说 yes / no 也可以，再补完整会更像真实对话。",
+                current_examples=[polarity_example],
+                next_examples=plan.next_examples,
+            )
+        if actual_move == "item_full":
+            return self._diagnosis_with_tip(plan, actual_move, "off_target", "ok", "stay_on_task", "这一步可以先做判断", "这一句更适合先回答 yes 或 no，再决定要不要补名称。")
+        return self._diagnosis_with_tip(plan, actual_move, "off_target", "ok", "stay_on_task", "这一步可以先做判断", "老师这句更希望你先判断对不对。")
+
+    def _diagnose_general_turn(
+        self,
+        context: dict[str, Any],
+        plan: PracticeTurnPlan,
+        state: PracticeSessionState,
+        history: list[dict[str, str]],
+        student_message: str,
+    ) -> PracticeTurnDiagnosis:
+        vocabulary = plan.context_data.get("vocabulary", []) if isinstance(plan.context_data, dict) else []
+        actual_move = self._infer_general_actual_move(plan.expected_move, student_message, vocabulary)
+        lowered_student = " ".join(student_message.split()).strip().lower()
+        yes_no_kind = self._yes_no_reply_kind(lowered_student)
+        if plan.step_id == "say_name":
+            if actual_move == "on_track":
+                return self._diagnosis_on_track(plan, actual_move)
+            return self._diagnosis_with_tip(plan, actual_move, "under_complete", "incomplete_sentence", "make_it_full", "这句话可以更完整一点", "如果是在自我介绍，把名字放进完整句里会更自然。")
+        if plan.step_id == "favorite_preference":
+            if actual_move == "on_track":
+                return self._diagnosis_on_track(plan, actual_move)
+            return self._diagnosis_with_tip(plan, actual_move, "under_complete" if actual_move == "keyword_only" else "off_target", "incomplete_sentence" if actual_move == "keyword_only" else "ok", "make_it_full", "这一步可以更像完整回答", "这里更适合直接说自己喜欢什么。")
+        if plan.step_id == "judge_preference":
+            if yes_no_kind == "sentence":
+                return self._diagnosis_on_track(plan, "yes_no_sentence")
+            if yes_no_kind == "bare":
+                polarity_example = "No, I don't." if self._is_yes_no_negative(lowered_student) else "Yes, I do."
+                return self._diagnosis_with_tip(
+                    plan,
+                    "yes_no_only",
+                    "under_complete",
+                    "soft_naturalness_issue",
+                    "sound_more_natural",
+                    "这一步可以更自然",
+                    "只说 yes / no 也可以，再补完整会更像真实对话。",
+                    current_examples=[polarity_example],
+                    next_examples=plan.next_examples,
+                )
+            if actual_move == "on_track":
+                return self._diagnosis_on_track(plan, actual_move)
+            return self._diagnosis_with_tip(plan, actual_move, "off_target", "ok", "stay_on_task", "这一步先回到当前问题", "这一句更适合先表达喜不喜欢。")
+        if plan.step_id == "state_plan":
+            if actual_move == "on_track":
+                return self._diagnosis_on_track(plan, actual_move)
+            return self._diagnosis_with_tip(plan, actual_move, "under_complete" if actual_move == "keyword_only" else "off_target", "incomplete_sentence" if actual_move == "keyword_only" else "ok", "make_it_full", "这句话可以更像完整回答", "如果在说计划，把动作放进完整句里会更自然。")
+        if plan.step_id == "give_location":
+            if actual_move == "on_track":
+                return self._diagnosis_on_track(plan, actual_move)
+            if actual_move == "question_back":
+                return self._diagnosis_with_tip(plan, actual_move, "off_target", "ok", "stay_on_task", "这一步更适合回答位置", "老师这一句是在问地点，这里更适合直接回答位置。")
+            return self._diagnosis_with_tip(plan, actual_move, "under_complete" if actual_move == "keyword_only" else "off_target", "incomplete_sentence" if actual_move == "keyword_only" else "ok", "make_it_full", "这句话可以再完整一点", "把地点放进完整句里会更自然。")
+        if plan.step_id == "name_object":
+            if actual_move == "on_track":
+                return self._diagnosis_on_track(plan, actual_move)
+            return self._diagnosis_with_tip(plan, actual_move, "under_complete" if actual_move == "keyword_only" else "off_target", "incomplete_sentence" if actual_move == "keyword_only" else "ok", "make_it_full", "这句话可以更完整一点", "把物品放进完整句里会更自然。")
+        if plan.step_id == "answer_yes_no":
+            if yes_no_kind == "sentence":
+                return self._diagnosis_on_track(plan, "yes_no_sentence")
+            if yes_no_kind == "bare":
+                polarity_example = "No, it isn't." if self._is_yes_no_negative(lowered_student) else "Yes, it is."
+                return self._diagnosis_with_tip(
+                    plan,
+                    "yes_no_only",
+                    "under_complete",
+                    "soft_naturalness_issue",
+                    "sound_more_natural",
+                    "这一步可以更自然",
+                    "只说 yes / no 也可以，如果想更像完整对话，可以把判断说完整。",
+                    current_examples=[polarity_example],
+                )
+            return self._diagnosis_with_tip(plan, actual_move, "off_target", "ok", "stay_on_task", "这一步可以先做判断", "老师这一句更希望你先回答 yes 或 no。")
+        if actual_move == "on_track":
+            return self._diagnosis_on_track(plan, actual_move)
+        return self._diagnosis_with_tip(plan, actual_move, "under_complete" if actual_move == "keyword_only" else "off_target", "incomplete_sentence" if actual_move == "keyword_only" else "ok", "make_it_full", "这句话可以再完整一点", "把回答说完整一点，会更像真实对话。")
+
+    def _shopping_step_examples(self, step_id: str, current_item: str) -> tuple[list[str], list[str]]:
+        if step_id == "choose_item":
+            return [self._shopping_choice_sentence(current_item)], [self._shopping_price_question(current_item)]
+        if step_id == "ask_price":
+            return [self._shopping_price_question(current_item)], ["I will take it.", "No, thank you."]
+        if step_id == "accept_or_decline":
+            return ["I will take it.", "No, thank you."], ["Here is the money.", "Thank you."]
+        return ["Here is the money.", "Thank you."], []
+
+    def _deictic_step_examples(self, step_id: str, current_item: str, items: list[str]) -> tuple[list[str], list[str]]:
+        if step_id == "name_object":
+            next_item = self._next_item(items, current_item) or current_item
+            return [f"They're {current_item}."], [f"Are these {next_item}?"] if next_item else []
+        examples = ["Yes, they are.", "No, they aren't."]
+        next_examples = [f"They're {current_item}."] if current_item else []
+        return examples, next_examples
+
+    def _general_step_examples(
+        self,
+        step_id: str,
+        target_patterns: list[str],
+        vocabulary: list[str],
+        student_message: str,
+    ) -> tuple[list[str], list[str]]:
+        if step_id == "say_name":
+            guessed_name = self._guess_name_from_reply(student_message)
+            return [f"My name is {guessed_name}." if guessed_name else "My name is Amy."], ["Nice to meet you.", "What is your name?"]
+        if step_id == "favorite_preference":
+            return [self._preference_example(student_message, vocabulary)], []
+        if step_id == "judge_preference":
+            preference_example = self._preference_example(student_message, vocabulary)
+            return ["Yes, I do.", "No, I don't."], [preference_example]
+        if step_id == "state_plan":
+            return [self._weekend_plan_example(student_message, vocabulary)], ["I will go to the park with my mom."]
+        if step_id == "give_location":
+            return [self._location_answer_example(target_patterns, vocabulary)], []
+        if step_id == "name_object":
+            return [self._object_answer_example(target_patterns, student_message)], []
+        if step_id == "answer_yes_no":
+            return ["Yes, it is.", "No, it isn't."], []
+        return [self._general_response_example(self._step_expected_move(step_id), target_patterns, vocabulary, student_message)], []
+
+    def _infer_general_step_id(self, last_prompt: str, target_patterns: list[str]) -> str:
+        prompt = self._focus_prompt(last_prompt)
+        patterns = " | ".join(target_patterns).lower()
+        if "what is your name" in prompt or "what's your name" in prompt:
+            return "say_name"
+        if "favorite" in prompt or "favourite" in prompt:
+            return "favorite_preference"
+        if "do you like" in prompt:
+            return "judge_preference"
+        if "what will you do" in prompt or "what are you going to do" in prompt:
+            return "state_plan"
+        if "where is" in prompt or "where are" in prompt:
+            return "give_location"
+        if "what is this" in prompt or "what is that" in prompt or ("what are" in prompt and "these" not in prompt and "those" not in prompt):
+            return "name_object"
+        if prompt.startswith("is ") or prompt.startswith("are ") or " is it" in prompt or " are they" in prompt:
+            return "answer_yes_no"
+        if "where is" in patterns or "next to" in patterns or "behind" in patterns or "in front of" in patterns:
+            return "give_location"
+        return "general_response"
+
+    def _step_expected_move(self, step_id: str) -> str:
+        mapping = {
+            "say_name": "say_name",
+            "favorite_preference": "state_preference",
+            "judge_preference": "state_preference",
+            "state_plan": "state_plan",
+            "give_location": "give_location",
+            "name_object": "name_object",
+            "answer_yes_no": "answer_yes_no",
+            "general_response": "general_response",
+        }
+        return mapping.get(step_id, step_id)
+
+    def _diagnosis_on_track(self, plan: PracticeTurnPlan, actual_move: str) -> PracticeTurnDiagnosis:
+        return PracticeTurnDiagnosis(
+            expected_move=plan.expected_move,
+            actual_move=actual_move,
+            task_status="on_track",
+            language_status="ok",
+            tip_type="",
+            title="",
+            message_cn="",
+            current_examples=plan.current_examples,
+            next_examples=plan.next_examples,
+        )
+
+    def _diagnosis_with_tip(
+        self,
+        plan: PracticeTurnPlan,
+        actual_move: str,
+        task_status: str,
+        language_status: str,
+        tip_type: str,
+        title: str,
+        message_cn: str,
+        current_examples: list[str] | None = None,
+        next_examples: list[str] | None = None,
+    ) -> PracticeTurnDiagnosis:
+        return PracticeTurnDiagnosis(
+            expected_move=plan.expected_move,
+            actual_move=actual_move,
+            task_status=task_status,
+            language_status=language_status,
+            tip_type=tip_type,
+            title=title,
+            message_cn=message_cn,
+            current_examples=current_examples if current_examples is not None else plan.current_examples,
+            next_examples=next_examples if next_examples is not None else plan.next_examples,
+        )
 
     def _build_session_report(self, context: dict[str, Any], history: list[dict[str, str]]) -> dict[str, Any]:
         policy = context.get("policy", {}) if isinstance(context, dict) else {}
@@ -1645,6 +2127,17 @@ class PracticeService:
         if re.search(r"\b(it is|it's|they are|they're)\b", text) and re.search(r"\b\d+\b", text):
             return True
         return False
+
+    def _yes_no_reply_kind(self, text: str) -> str:
+        normalized = " ".join((text or "").split()).strip().lower()
+        if not normalized:
+            return "not_yes_no"
+        if not (self._is_yes_no_positive(normalized) or self._is_yes_no_negative(normalized)):
+            return "not_yes_no"
+        words = re.findall(r"[a-zA-Z']+", normalized)
+        if len(words) <= 1:
+            return "bare"
+        return "sentence"
 
     def _looks_like_incomplete_reply(self, text: str) -> bool:
         words = re.findall(r"[a-zA-Z']+", text)

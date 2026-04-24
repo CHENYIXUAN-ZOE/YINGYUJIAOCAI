@@ -315,7 +315,7 @@ def test_chat_shopping_policy_answers_price_from_dialogue_example(tmp_path):
     assert payload["assistant_message"]["content"] == "They are thirty yuan."
 
 
-def test_chat_returns_shopping_turn_tip(tmp_path):
+def test_chat_skips_tip_when_shopping_reply_is_already_on_track(tmp_path):
     job_service = StubJobService()
     unit = job_service.payload["units"][0]
     unit["unit"]["unit_theme"] = "购物与价格询问"
@@ -353,12 +353,8 @@ def test_chat_returns_shopping_turn_tip(tmp_path):
         )()
     )
 
-    assert payload["turn_tip"]["has_tip"] is True
-    assert payload["turn_tip"]["tips"][0]["tip_type"] == "next_step"
-    assert payload["turn_tip"]["tips"][0]["example_en"] == "I want a doll."
-    assert payload["turn_tip"]["tips"][0]["example_label_cn"] == "这一步可以这样答"
-    assert payload["turn_tip"]["tips"][0]["optional_next_en"] == "How much is the doll?"
-    assert "问价格" in payload["turn_tip"]["tips"][0]["message_cn"]
+    assert payload["turn_tip"]["has_tip"] is False
+    assert payload["turn_tip"]["tips"] == []
 
 
 def test_chat_returns_shopping_role_alignment_tip(tmp_path):
@@ -483,7 +479,7 @@ def test_chat_returns_name_intro_completion_tip(tmp_path):
     assert payload["turn_tip"]["tips"][0]["example_en"] == "My name is Amy."
 
 
-def test_chat_name_tip_keeps_current_answer_and_next_step_separate(tmp_path):
+def test_chat_skips_tip_when_name_reply_is_already_complete(tmp_path):
     job_service = StubJobService()
     job_service.payload["units"][0]["sentence_patterns"] = [
         {"pattern": "What is your name?"},
@@ -509,11 +505,8 @@ def test_chat_name_tip_keeps_current_answer_and_next_step_separate(tmp_path):
         )()
     )
 
-    assert payload["turn_tip"]["has_tip"] is True
-    assert payload["turn_tip"]["tips"][0]["tip_type"] == "next_step"
-    assert payload["turn_tip"]["tips"][0]["example_en"] == "My name is Amy."
-    assert payload["turn_tip"]["tips"][0]["optional_next_en"] == "Nice to meet you."
-    assert payload["turn_tip"]["tips"][0]["secondary_next_en"] == "What is your name?"
+    assert payload["turn_tip"]["has_tip"] is False
+    assert payload["turn_tip"]["tips"] == []
 
 
 def test_chat_location_tip_prefers_answer_pattern_not_question_pattern(tmp_path):
