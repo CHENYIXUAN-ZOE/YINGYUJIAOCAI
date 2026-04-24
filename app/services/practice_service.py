@@ -27,6 +27,7 @@ Interaction style:
 - Encourage the student to say a little more, but do not overload the student.
 - Ask concrete, answerable questions about the student, the classroom, the picture, daily actions, likes, or plans.
 - If you use role-play, state the scene plainly first in one short sentence.
+- Once a role-play scene is set, keep your role consistent until you clearly say the role-play is changing.
 - Do not ask the student to guess something that exists only in your mind or in an unstated imaginary scene.
 - Do not use abstract, poetic, dramatic, or tricky wording.
 - Use English only.
@@ -70,6 +71,7 @@ Interaction style:
 - Help the student combine key words and sentence patterns more flexibly.
 - Allow slightly more natural follow-up and scene extension when it still fits the unit.
 - Keep role-play light, focused, and age-appropriate.
+- Once a role-play scene is set, keep your role consistent until you clearly say the role-play is changing.
 - Ask concrete, answerable questions grounded in the student, the classroom, daily life, or a clearly stated simple scene.
 - If you use role-play, state the scene plainly first instead of jumping into an unstated situation.
 - Do not ask the student to guess something that exists only in your mind or in an unstated imaginary scene.
@@ -168,7 +170,7 @@ class PracticeService:
             )
 
         # Validate job and unit against existing structured content.
-        self.get_context(payload.job_id, payload.unit_id)
+        context = self.get_context(payload.job_id, payload.unit_id)
 
         final_prompt = payload.final_prompt.strip()
         if not final_prompt:
@@ -195,10 +197,11 @@ class PracticeService:
             outgoing_messages.append({"role": "user", "content": student_message})
 
         response = self.practice_client.create_chat_completion(outgoing_messages)
+        assistant_message = self._apply_assistant_guardrails(context, response.assistant_message)
         round_count = self._count_rounds(payload.messages, student_message, payload.is_opening_turn)
 
         return {
-            "assistant_message": {"role": "assistant", "content": response.assistant_message},
+            "assistant_message": {"role": "assistant", "content": assistant_message},
             "round_count": round_count,
             "status_hint": "接近建议轮次，但可继续对话" if round_count >= 7 else "",
             "meta": {
@@ -289,6 +292,9 @@ class PracticeService:
                     "In this shopping practice, let the student act as the customer first unless the task clearly says otherwise.",
                     "You should usually take the shopkeeper role and answer price questions briefly and naturally.",
                     "Guide the student to ask target questions such as 'How much is ...?' or 'How much are ...?' instead of mainly asking the student to give prices.",
+                    "Do not switch roles in the middle of the shopping scene unless you clearly announce a new role-play setup.",
+                    "As the shopkeeper, do not ask customer-side price questions such as 'How much is it?' or 'How much are they?'.",
+                    "If the student chooses an item but has not asked the price yet, prompt the student to ask about the price instead of asking it yourself.",
                 ]
             )
         return guidance
@@ -329,3 +335,48 @@ class PracticeService:
         if is_opening_turn:
             return completed_user_turns
         return completed_user_turns + (1 if student_message else 0)
+
+    def _apply_assistant_guardrails(self, context: dict[str, Any], assistant_message: str) -> str:
+        normalized = " ".join((assistant_message or "").split()).strip()
+        if not normalized:
+            return normalized
+        if self._looks_like_shopping_price_practice(context):
+            return self._rewrite_shopkeeper_price_prompt(normalized)
+        return normalized
+
+    def _looks_like_shopping_price_practice(self, context: dict[str, Any]) -> bool:
+        unit = context.get("unit", {}) if isinstance(context, dict) else {}
+        summary = context.get("summary", {}) if isinstance(context, dict) else {}
+        joined = " ".join(
+            [
+                str(unit.get("unit_name", "") or ""),
+                str(unit.get("unit_theme", "") or ""),
+                str(unit.get("unit_task", "") or ""),
+                " | ".join(summary.get("sentence_patterns", []) or []),
+            ]
+        ).lower()
+        return any(
+            marker in joined
+            for marker in ["shopping", "购物", "顾客", "售货员", "店员", "价格", "how much", "yuan", "buy", "sell"]
+        )
+
+    def _rewrite_shopkeeper_price_prompt(self, assistant_message: str) -> str:
+        sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", assistant_message) if part.strip()]
+        kept: list[str] = []
+        removed_price_question = False
+
+        for sentence in sentences:
+            if re.match(r"(?i)^how much (is|are)\b", sentence):
+                removed_price_question = True
+                continue
+            kept.append(sentence)
+
+        if not removed_price_question:
+            return assistant_message
+
+        has_existing_question = any(sentence.endswith("?") for sentence in kept)
+        mentions_price = any("price" in sentence.lower() for sentence in kept)
+        if not has_existing_question and not mentions_price:
+            kept.append("Do you want to know the price?")
+
+        return " ".join(kept).strip() or "Do you want to know the price?"

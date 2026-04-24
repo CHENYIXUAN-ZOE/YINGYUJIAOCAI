@@ -91,6 +91,7 @@ def test_get_context_builds_prompt_preview(tmp_path):
     assert "Key vocabulary: park, library" in payload["prompt"]["final_prompt_preview"]
     assert "Do not ask the student to guess something that exists only in your mind" in payload["prompt"]["default_template"]
     assert "Keep most teacher turns under about 20 English words in total." in payload["prompt"]["default_template"]
+    assert "keep your role consistent until you clearly say the role-play is changing" in payload["prompt"]["default_template"]
     assert "Keep it concrete, easy to answer, and clearly tied to the unit." in payload["prompt"]["final_prompt_preview"]
 
 
@@ -112,6 +113,9 @@ def test_get_context_adds_shopping_role_guidance(tmp_path):
     assert "let the student act as the customer first" in final_prompt
     assert "take the shopkeeper role" in final_prompt
     assert "Guide the student to ask target questions such as 'How much is ...?'" in final_prompt
+    assert "Do not switch roles in the middle of the shopping scene" in final_prompt
+    assert "do not ask customer-side price questions" in final_prompt
+    assert "prompt the student to ask about the price instead of asking it yourself" in final_prompt
 
 
 def test_chat_requires_provider_configuration(tmp_path):
@@ -164,3 +168,44 @@ def test_chat_uses_provider_client_response(tmp_path):
     assert payload["meta"]["provider"] == "qwen"
     assert payload["meta"]["model"] == "qwen3.5-flash"
     assert client.messages[0] == {"role": "system", "content": "final prompt"}
+
+
+def test_chat_rewrites_shopkeeper_price_question_for_shopping_unit(tmp_path):
+    job_service = StubJobService()
+    unit = job_service.payload["units"][0]
+    unit["unit"]["unit_theme"] = "购物与价格询问"
+    unit["unit"]["classification"]["unit_name"] = "Shopping"
+    unit["sentence_patterns"] = [
+        {"pattern": "How much is it? / It's X yuan."},
+        {"pattern": "How much are they? / They are X yuan."},
+    ]
+    unit["unit_task"] = {"task_intro": "学生选择商品并扮演顾客和售货员进行购物对话。"}
+    client = StubPracticeClient(
+        configured=True,
+        response=OpenAICompatiblePracticeChatResponse(
+            assistant_message="Great choice! Here is a cute doll. How much is it?",
+            request_id="req_demo",
+            latency_ms=12,
+            usage={"prompt_tokens": 10, "completion_tokens": 9},
+        ),
+    )
+    service = PracticeService(job_service, client)
+
+    payload = service.chat(
+        type(
+            "Req",
+            (),
+            {
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "grade_band": "3-4",
+                "prompt_template": "template",
+                "final_prompt": "final prompt",
+                "messages": [],
+                "student_message": "",
+                "is_opening_turn": True,
+            },
+        )()
+    )
+
+    assert payload["assistant_message"]["content"] == "Great choice! Here is a cute doll. Do you want to know the price?"
