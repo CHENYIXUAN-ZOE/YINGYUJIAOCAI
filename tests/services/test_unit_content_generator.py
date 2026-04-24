@@ -81,7 +81,9 @@ def test_build_unit_generation_prompt_contains_common_constraints():
 
     assert "只处理当前 classification 对应的单元" in prompt
     assert "不要输出解释、Markdown、代码块或额外字段" in prompt
-    assert "对话必须为 10-15 轮" in prompt
+    assert "证据充分时整理为 6-12 轮" in prompt
+    assert "不要为了凑轮次重复台词" in prompt
+    assert "不要把整句误写成说话人" in prompt
     assert "`grammar_rules` 输出 1-3 条" in prompt
     assert "目标 15-30 个中文字符" in prompt
     assert '"unit_name": "My Family"' in prompt
