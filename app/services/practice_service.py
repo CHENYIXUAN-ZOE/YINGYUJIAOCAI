@@ -624,47 +624,75 @@ class PracticeService:
             or self._last_referenced_item(history, items)
         )
 
+        if self._sounds_like_customer_price_answer(lowered_student):
+            prompt_item = current_item or "it"
+            return [
+                self._build_tip(
+                    tip_type="stay_on_task",
+                    title="这一步可以换成顾客会说的话",
+                    message_cn="在购物对话里，价格通常由店员来回答。你先问价格，会更像真实对话。",
+                    example_en=self._shopping_price_question(prompt_item) if prompt_item != "it" else "How much is it?",
+                    reason_cn="这样能把学生放回顾客这一侧，也更符合本轮练习目标。",
+                )
+            ]
+
+        if current_item and self._looks_like_incomplete_reply(lowered_student):
+            return [
+                self._build_tip(
+                    tip_type="make_it_full",
+                    title="这句话可以再完整一点",
+                    message_cn="你已经提到了商品，再补成完整句，店员会更容易接着往下说。",
+                    example_en=self._shopping_choice_sentence(current_item),
+                    reason_cn="先把想买什么说完整，再进入问价会更自然。",
+                )
+            ]
+
         if "how much" in lowered_student:
             if current_item:
                 return [
-                    {
-                        "title": "这一步做得不错",
-                        "message_cn": "你已经主动问价格了，下一句可以继续决定要不要买。",
-                        "example_en": "I will take it.",
-                        "reason_cn": "购物对话里，问完价格后通常会进入购买决定。",
-                    }
+                    self._build_tip(
+                        tip_type="next_step",
+                        title="这一步推进得不错",
+                        message_cn="你已经主动问价格了，下一句可以顺势决定买不买，或者继续确认。",
+                        example_en="I will take it.",
+                        reason_cn="真实购物对话里，问完价格后通常会进入购买决定。",
+                        optional_next_en="No, thank you.",
+                    )
                 ]
             return []
 
         if current_item and any(token in lowered_student for token in ["want", "like", "take"]):
             return [
-                {
-                    "title": "这一步可以试试",
-                    "message_cn": "如果你想继续购物，可以主动问价格。",
-                    "example_en": self._shopping_price_question(current_item),
-                    "reason_cn": "这一轮的重点是练习询问价格。",
-                }
+                self._build_tip(
+                    tip_type="next_step",
+                    title="这一步可以继续往前走",
+                    message_cn="你已经选了商品，下一句可以自然地把对话推进到问价格。",
+                    example_en=self._shopping_price_question(current_item),
+                    reason_cn="这样更符合购物场景里“选商品 -> 问价格”的顺序。",
+                )
             ]
 
         if "it is" in lowered_student or "it’s" in lowered_student or "it's" in lowered_student:
             if current_item:
                 return [
-                    {
-                        "title": "这一步可以更自然",
-                        "message_cn": "你已经表达了喜欢，可以继续决定是否购买，或者主动问价格。",
-                        "example_en": f"How much is the {current_item}?",
-                        "reason_cn": "这样更贴近购物场景的完整对话链路。",
-                    }
+                    self._build_tip(
+                        tip_type="sound_more_natural",
+                        title="这一步可以更像真实购物对话",
+                        message_cn="如果你是在回应店员，可以少说一点解释，多推进下一步会更自然。",
+                        example_en=self._shopping_price_question(current_item),
+                        reason_cn="购物场景里，学生更适合继续问价或决定是否购买。",
+                    )
                 ]
 
         if any(token in lowered_student for token in ["thank you", "thanks"]):
             return [
-                {
-                    "title": "这一步做得不错",
-                    "message_cn": "你已经用上了礼貌表达，下一句可以自然结束对话。",
-                    "example_en": "Goodbye!",
-                    "reason_cn": "礼貌收尾会让购物对话更完整。",
-                }
+                self._build_tip(
+                    tip_type="next_step",
+                    title="这一步收得不错",
+                    message_cn="你已经用了礼貌表达，下一句可以自然结束，或者再补一句告别。",
+                    example_en="Goodbye!",
+                    reason_cn="礼貌收尾会让购物对话显得更完整。",
+                )
             ]
 
         return []
@@ -680,34 +708,61 @@ class PracticeService:
         lowered_student = " ".join(student_message.split()).strip().lower()
         current_item = self._detect_item_in_text(lowered_student, items) or self._last_anchor_item(history, items)
 
-        if current_item and "they are" not in lowered_student and "they're" not in lowered_student:
+        if current_item and self._looks_like_incomplete_reply(lowered_student):
             return [
-                {
-                    "title": "这一步可以更完整",
-                    "message_cn": "如果你知道答案，可以试着用完整句来回答。",
-                    "example_en": f"They're {current_item}.",
-                    "reason_cn": "这一轮重点是练习完整地说出这些东西是什么。",
-                }
+                self._build_tip(
+                    tip_type="make_it_full",
+                    title="这句话可以更完整一点",
+                    message_cn="你已经说对了物品名，再补成完整句会更像自然回答。",
+                    example_en=f"They're {current_item}.",
+                    reason_cn="这一轮练的是“看到这些东西后，用完整句说出它们是什么”。",
+                )
             ]
 
         if self._is_yes_no_negative(lowered_student):
+            example = f"No, they aren't. They're {current_item}." if current_item else "No, they aren't. They're carrots."
             return [
-                {
-                    "title": "这一步可以再往前走",
-                    "message_cn": "回答完 yes/no 之后，也可以顺手补出真正的名称。",
-                    "example_en": assistant_message,
-                    "reason_cn": "这样会让表达更完整，也更贴近教材目标句型。",
-                }
+                self._build_tip(
+                    tip_type="make_it_full",
+                    title="这一步可以再多说半句",
+                    message_cn="只回答 yes / no 已经不错了，再补出真正的名称会更完整。",
+                    example_en=example,
+                    reason_cn="这样既保留判断句，也把答案说完整了。",
+                )
+            ]
+
+        if self._is_yes_no_positive(lowered_student):
+            return [
+                self._build_tip(
+                    tip_type="sound_more_natural",
+                    title="这一步可以更自然",
+                    message_cn="如果老师只是让你判断，对应地用完整的 yes 句会更自然。",
+                    example_en="Yes, they are.",
+                    reason_cn="完整回答会比只说 yes 更清楚。",
+                )
+            ]
+
+        if current_item and "they are" not in lowered_student and "they're" not in lowered_student:
+            return [
+                self._build_tip(
+                    tip_type="make_it_full",
+                    title="这一步可以更完整",
+                    message_cn="如果你已经知道答案，可以直接用完整句说出来。",
+                    example_en=f"They're {current_item}.",
+                    reason_cn="这样会更贴近本单元的目标句型。",
+                )
             ]
 
         if current_item and ("they are" in lowered_student or "they're" in lowered_student):
+            next_item = self._next_item(items, current_item) or current_item
             return [
-                {
-                    "title": "这一步做得不错",
-                    "message_cn": "你已经用完整句回答了，下一步可以继续练判断句。",
-                    "example_en": f"Are these {current_item}?",
-                    "reason_cn": "这一单元通常会在命名和判断之间切换练习。",
-                }
+                self._build_tip(
+                    tip_type="next_step",
+                    title="这一步做得不错",
+                    message_cn="你已经用完整句回答了，下一步可以继续练判断句，或者换一组新物品。",
+                    example_en=f"Are these {next_item}?",
+                    reason_cn="这一类单元通常会在“命名”和“判断”之间切换练习。",
+                )
             ]
 
         return []
@@ -722,26 +777,65 @@ class PracticeService:
         last_assistant = next((message for message in reversed(history) if message.get("role") == "assistant"), {})
         last_prompt = last_assistant.get("content", "").lower()
         target_patterns = context.get("summary", {}).get("sentence_patterns", []) if isinstance(context, dict) else []
+        vocabulary = context.get("summary", {}).get("vocabulary", []) if isinstance(context, dict) else []
 
         if "what is your name" in last_prompt and "my name" not in lowered_student and "i am" not in lowered_student:
+            guessed_name = self._guess_name_from_reply(student_message)
             return [
-                {
-                    "title": "这一步可以更完整",
-                    "message_cn": "如果是在自我介绍，可以把名字放进完整句里。",
-                    "example_en": "My name is Amy.",
-                    "reason_cn": "这样会更贴近本轮目标句型。",
-                }
+                self._build_tip(
+                    tip_type="make_it_full",
+                    title="这句话可以更完整一点",
+                    message_cn="如果是在自我介绍，把名字放进完整句里会更自然。",
+                    example_en=f"My name is {guessed_name}." if guessed_name else "My name is Amy.",
+                    reason_cn="这样更贴近问名字这一步的自然回答方式。",
+                )
+            ]
+
+        if "what will you do" in last_prompt and "i will" not in lowered_student:
+            return [
+                self._build_tip(
+                    tip_type="make_it_full",
+                    title="这句话可以更像完整回答",
+                    message_cn="如果在说计划，可以把动作放进 “I will ...” 里面。",
+                    example_en=self._weekend_plan_example(student_message, vocabulary),
+                    reason_cn="这样更贴近计划类单元的核心表达。",
+                )
+            ]
+
+        if "do you like" in last_prompt and not any(token in lowered_student for token in ["i like", "yes", "no"]):
+            topic = self._detect_item_in_text(lowered_student, [str(item).lower() for item in vocabulary]) or self._first_non_empty(vocabulary) or "apples"
+            return [
+                self._build_tip(
+                    tip_type="sound_more_natural",
+                    title="这一步可以更自然",
+                    message_cn="如果是在表达喜好，可以直接把喜欢不喜欢说出来。",
+                    example_en=f"I like {topic}.",
+                    reason_cn="这样会更贴近“Do you like ...?” 这一类问答。",
+                )
+            ]
+
+        if self._looks_like_incomplete_reply(lowered_student) and target_patterns:
+            first_pattern = target_patterns[0]
+            return [
+                self._build_tip(
+                    tip_type="use_core_pattern",
+                    title="这一步可以往目标句型靠近一点",
+                    message_cn="你已经开始回答了，再往本单元的重点表达靠近一点，会更像完整练习。",
+                    example_en=first_pattern,
+                    reason_cn="这不是要背句子，而是帮你更自然地贴近本轮练习目标。",
+                )
             ]
 
         if target_patterns:
             first_pattern = target_patterns[0]
             return [
-                {
-                    "title": "这一步可以试试",
-                    "message_cn": "你可以继续往本单元重点句型靠近一点。",
-                    "example_en": first_pattern,
-                    "reason_cn": "这样会更贴近当前单元的练习目标。",
-                }
+                self._build_tip(
+                    tip_type="next_step",
+                    title="这一步可以继续往前走",
+                    message_cn="你已经跟上了对话，下一轮可以试着把本单元的重点表达带出来。",
+                    example_en=first_pattern,
+                    reason_cn="这样能让对话更贴近当前单元的学习目标。",
+                )
             ]
         return []
 
@@ -967,6 +1061,78 @@ class PracticeService:
         if item in {"sunglasses", "glasses"}:
             return f"How much are the {item}?"
         return f"How much is the {item}?"
+
+    def _shopping_choice_sentence(self, item: str) -> str:
+        if item in {"sunglasses", "glasses"} or item.endswith("s"):
+            return f"I want the {item}."
+        article = "an" if item[:1].lower() in {"a", "e", "i", "o", "u"} else "a"
+        return f"I want {article} {item}."
+
+    def _build_tip(
+        self,
+        *,
+        tip_type: str,
+        title: str,
+        message_cn: str,
+        example_en: str,
+        reason_cn: str,
+        optional_next_en: str = "",
+    ) -> dict[str, str]:
+        payload = {
+            "tip_type": tip_type,
+            "title": title,
+            "message_cn": message_cn,
+            "example_en": example_en,
+            "reason_cn": reason_cn,
+        }
+        if optional_next_en:
+            payload["optional_next_en"] = optional_next_en
+        return payload
+
+    def _sounds_like_customer_price_answer(self, text: str) -> bool:
+        if "yuan" in text:
+            return True
+        if re.search(r"\b(it is|it's|they are|they're)\b", text) and re.search(r"\b\d+\b", text):
+            return True
+        return False
+
+    def _looks_like_incomplete_reply(self, text: str) -> bool:
+        words = re.findall(r"[a-zA-Z']+", text)
+        if not words:
+            return False
+        if self._is_yes_no_positive(text) or self._is_yes_no_negative(text):
+            return False
+        if any(
+            text.startswith(prefix)
+            for prefix in ["i ", "i'", "my ", "it ", "it's", "it is", "they ", "they'", "yes", "no", "hello", "hi"]
+        ):
+            return False
+        return len(words) <= 4
+
+    def _guess_name_from_reply(self, student_message: str) -> str:
+        candidate = re.sub(r"[^A-Za-z -]", " ", student_message).strip()
+        if not candidate:
+            return ""
+        parts = [part for part in candidate.split() if part]
+        if not parts:
+            return ""
+        return " ".join(part.capitalize() for part in parts[:2])
+
+    def _weekend_plan_example(self, student_message: str, vocabulary: list[str]) -> str:
+        lowered = student_message.lower()
+        place = self._detect_item_in_text(lowered, [str(item).lower() for item in vocabulary])
+        if place:
+            if place.startswith("the "):
+                return f"I will go to {place}."
+            return f"I will go to the {place}."
+        return "I will go to the park."
+
+    def _first_non_empty(self, items: list[Any]) -> str:
+        for item in items:
+            value = str(item or "").strip()
+            if value:
+                return value
+        return ""
 
     def _message_role(self, item: Any) -> str:
         if isinstance(item, dict):
