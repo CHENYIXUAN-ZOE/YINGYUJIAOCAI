@@ -26,6 +26,7 @@ from app.services.generator import (
     task_generator,
     vocabulary_generator,
 )
+from app.services.parser.heuristics import normalize_line
 from app.services.parser import dialogue_extractor, sentence_extractor, vocabulary_extractor
 
 _UNIT_RESPONSE_SCHEMA = {
@@ -293,18 +294,22 @@ class UnitContentGenerator:
     def _payload_to_unit_package(self, unit_record: UnitRecord, source_pages: list[int], payload: dict[str, Any]) -> UnitPackage:
         classification = unit_record.classification
         unit_id = unit_record.unit_id
-        unit_record.unit_theme = payload.get("unit_theme") or unit_record.unit_theme
+        unit_record.unit_theme = self._clean_model_text(payload.get("unit_theme")) or unit_record.unit_theme
 
         vocabulary = [
             VocabularyItem(
                 item_id=f"{unit_id}_voc_{index}",
                 classification=classification,
-                word=item["word"].strip(),
-                part_of_speech=item.get("part_of_speech"),
-                meaning_zh=item.get("meaning_zh"),
-                example_sentences=[sentence.strip() for sentence in item.get("example_sentences", []) if sentence.strip()],
+                word=self._clean_model_text(item["word"]),
+                part_of_speech=self._clean_model_text(item.get("part_of_speech")),
+                meaning_zh=self._clean_model_text(item.get("meaning_zh")),
+                example_sentences=[
+                    self._clean_model_text(sentence)
+                    for sentence in item.get("example_sentences", [])
+                    if self._clean_model_text(sentence)
+                ],
                 source_pages=source_pages,
-                source_excerpt=item.get("source_excerpt"),
+                source_excerpt=self._clean_model_text(item.get("source_excerpt")),
             )
             for index, item in enumerate(payload.get("vocabulary", []), start=1)
             if item.get("word")
@@ -314,11 +319,15 @@ class UnitContentGenerator:
             SentencePattern(
                 item_id=f"{unit_id}_sp_{index}",
                 classification=classification,
-                pattern=item["pattern"].strip(),
-                usage_note=item.get("usage_note"),
-                examples=[example.strip() for example in item.get("examples", []) if example.strip()],
+                pattern=self._clean_model_text(item["pattern"]),
+                usage_note=self._clean_model_text(item.get("usage_note")),
+                examples=[
+                    self._clean_model_text(example)
+                    for example in item.get("examples", [])
+                    if self._clean_model_text(example)
+                ],
                 source_pages=source_pages,
-                source_excerpt=item.get("source_excerpt"),
+                source_excerpt=self._clean_model_text(item.get("source_excerpt")),
             )
             for index, item in enumerate(payload.get("sentence_patterns", []), start=1)
             if item.get("pattern")
@@ -328,21 +337,21 @@ class UnitContentGenerator:
             DialogueSample(
                 item_id=f"{unit_id}_dlg_{index}",
                 classification=classification,
-                title=item.get("title"),
+                title=self._clean_model_text(item.get("title")),
                 turns=[
                     DialogueTurn(
                         turn_index=turn_index,
-                        speaker=turn["speaker"].strip(),
-                        text_en=turn["text_en"].strip(),
-                        text_zh=turn["text_zh"].strip(),
+                        speaker=turn["speaker"],
+                        text_en=turn["text_en"],
+                        text_zh=turn["text_zh"],
                     )
-                    for turn_index, turn in enumerate(item.get("turns", []), start=1)
-                    if turn.get("speaker") and turn.get("text_en") and turn.get("text_zh")
+                    for turn_index, turn in enumerate(self._normalize_dialogue_turns(item.get("turns", [])), start=1)
                 ],
                 source_pages=source_pages,
-                source_excerpt=item.get("source_excerpt"),
+                source_excerpt=self._clean_model_text(item.get("source_excerpt")),
             )
             for index, item in enumerate(payload.get("dialogue_samples", []), start=1)
+            if self._normalize_dialogue_turns(item.get("turns", []))
         ]
 
         if not vocabulary or not sentence_patterns or not dialogue_samples:
@@ -356,18 +365,57 @@ class UnitContentGenerator:
             unit_task=UnitTask(
                 item_id=f"{unit_id}_task_1",
                 classification=classification,
-                task_intro=payload["unit_task"]["task_intro"].strip(),
-                source_basis=[item.strip() for item in payload["unit_task"].get("source_basis", []) if item.strip()],
+                task_intro=self._clean_model_text(payload["unit_task"]["task_intro"]),
+                source_basis=[
+                    self._clean_model_text(item)
+                    for item in payload["unit_task"].get("source_basis", [])
+                    if self._clean_model_text(item)
+                ],
             ),
             unit_prompt=UnitPrompt(
                 item_id=f"{unit_id}_prompt_1",
                 classification=classification,
-                unit_theme=payload["unit_prompt"]["unit_theme"].strip(),
-                grammar_rules=[item.strip() for item in payload["unit_prompt"].get("grammar_rules", []) if item.strip()],
-                prompt_notes=[item.strip() for item in payload["unit_prompt"].get("prompt_notes", []) if item.strip()],
-                source_basis=[item.strip() for item in payload["unit_prompt"].get("source_basis", []) if item.strip()],
+                unit_theme=self._clean_model_text(payload["unit_prompt"]["unit_theme"]),
+                grammar_rules=[
+                    self._clean_model_text(item)
+                    for item in payload["unit_prompt"].get("grammar_rules", [])
+                    if self._clean_model_text(item)
+                ],
+                prompt_notes=[
+                    self._clean_model_text(item)
+                    for item in payload["unit_prompt"].get("prompt_notes", [])
+                    if self._clean_model_text(item)
+                ],
+                source_basis=[
+                    self._clean_model_text(item)
+                    for item in payload["unit_prompt"].get("source_basis", [])
+                    if self._clean_model_text(item)
+                ],
             ),
         )
+
+    def _clean_model_text(self, value: Any) -> str:
+        return normalize_line(str(value or ""))
+
+    def _normalize_dialogue_turns(self, turns: list[dict[str, Any]]) -> list[dict[str, str]]:
+        normalized_turns: list[dict[str, str]] = []
+        for turn in turns:
+            speaker = self._clean_model_text(turn.get("speaker"))
+            text_en = self._clean_model_text(turn.get("text_en"))
+            text_zh = self._clean_model_text(turn.get("text_zh"))
+            if not speaker or not text_en or not text_zh:
+                continue
+            normalized_turn = {
+                "speaker": speaker,
+                "text_en": text_en,
+                "text_zh": text_zh,
+            }
+            if normalized_turns and normalized_turns[-1] == normalized_turn:
+                continue
+            normalized_turns.append(normalized_turn)
+            if len(normalized_turns) >= 12:
+                break
+        return normalized_turns
 
     def _build_prompt(self, classification: Classification, raw_unit: dict, source_text: str) -> str:
         return prompt_builder.build_unit_generation_prompt(classification, raw_unit, source_text)
