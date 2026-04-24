@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 
 import pytest
 
+from app.core.errors import AppError
 from app.core.config import Settings
 from app.services.parser import ocr_processor
 
 
-def build_settings(tmp_path, credentials_path=None) -> Settings:
+def build_settings(tmp_path, credentials_path=None, **overrides) -> Settings:
     settings = Settings(
         base_dir=tmp_path,
         data_dir=tmp_path / "data",
@@ -24,9 +27,51 @@ def build_settings(tmp_path, credentials_path=None) -> Settings:
         static_dir=tmp_path / "app" / "web" / "static",
         google_application_credentials=str(credentials_path) if credentials_path else None,
         google_cloud_project=None,
+        **overrides,
     )
     settings.ensure_directories()
     return settings
+
+
+def install_fake_google_modules(monkeypatch):
+    google_module = types.ModuleType("google")
+    genai_module = types.ModuleType("google.genai")
+    errors_module = types.ModuleType("google.genai.errors")
+    types_module = types.ModuleType("google.genai.types")
+    oauth2_module = types.ModuleType("google.oauth2")
+    service_account_module = types.ModuleType("google.oauth2.service_account")
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def close(self):
+            return None
+
+    class FakeHttpOptions:
+        def __init__(self, api_version=None):
+            self.api_version = api_version
+
+    class FakeCredentials:
+        @classmethod
+        def from_service_account_file(cls, *args, **kwargs):
+            return cls()
+
+    genai_module.Client = FakeClient
+    errors_module.APIError = RuntimeError
+    types_module.HttpOptions = FakeHttpOptions
+    service_account_module.Credentials = FakeCredentials
+
+    google_module.genai = genai_module
+    oauth2_module.service_account = service_account_module
+
+    monkeypatch.setitem(sys.modules, "google", google_module)
+    monkeypatch.setitem(sys.modules, "google.genai", genai_module)
+    monkeypatch.setitem(sys.modules, "google.genai.errors", errors_module)
+    monkeypatch.setitem(sys.modules, "google.genai.types", types_module)
+    monkeypatch.setitem(sys.modules, "google.oauth2", oauth2_module)
+    monkeypatch.setitem(sys.modules, "google.oauth2.service_account", service_account_module)
 
 
 def test_process_keeps_existing_text_when_ocr_api_is_not_configured(tmp_path, monkeypatch):
@@ -126,3 +171,98 @@ def test_normalize_ocr_payload_rejects_page_count_mismatch():
             {"pages": [{"page_num": 1, "page_text": "hello"}]},
             [{"page_num": 1, "image_bytes": b"1"}, {"page_num": 2, "image_bytes": b"2"}],
         )
+
+
+def test_extract_page_texts_reuses_cached_batches_on_second_run(tmp_path, monkeypatch):
+    credentials_path = tmp_path / "creds.json"
+    credentials_path.write_text(json.dumps({"project_id": "demo-project"}), encoding="utf-8")
+    settings = build_settings(tmp_path, credentials_path=credentials_path, ocr_page_batch_size=2)
+    install_fake_google_modules(monkeypatch)
+
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4")
+
+    monkeypatch.setattr(ocr_processor, "_resolve_page_count", lambda _document: 4)
+
+    render_calls: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        ocr_processor,
+        "_render_page_images",
+        lambda _file_path, _settings, page_start, page_end, _render_dpi: render_calls.append((page_start, page_end))
+        or [{"page_num": page_num, "image_bytes": f"page-{page_num}".encode("utf-8")} for page_num in range(page_start, page_end + 1)],
+    )
+
+    ocr_calls: list[list[int]] = []
+
+    def fake_ocr_batch(_client, _types, _genai_errors, _settings, rendered_pages, _max_attempts):
+        page_nums = [page["page_num"] for page in rendered_pages]
+        ocr_calls.append(page_nums)
+        return [f"Page {page_num}" for page_num in page_nums]
+
+    monkeypatch.setattr(ocr_processor, "_ocr_page_batch", fake_ocr_batch)
+
+    document = {"file_path": str(pdf_path)}
+
+    first_result = ocr_processor._extract_page_texts_with_gemini(document, settings)
+    second_result = ocr_processor._extract_page_texts_with_gemini(document, settings)
+
+    assert first_result == ["Page 1", "Page 2", "Page 3", "Page 4"]
+    assert second_result == first_result
+    assert ocr_calls == [[1, 2], [3, 4]]
+    assert render_calls == [(1, 2), (3, 4)]
+
+
+def test_extract_page_texts_reuses_completed_batches_after_failure(tmp_path, monkeypatch):
+    credentials_path = tmp_path / "creds.json"
+    credentials_path.write_text(json.dumps({"project_id": "demo-project"}), encoding="utf-8")
+    settings = build_settings(
+        tmp_path,
+        credentials_path=credentials_path,
+        ocr_page_batch_size=2,
+        gemini_max_retries=1,
+    )
+    install_fake_google_modules(monkeypatch)
+
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4")
+
+    monkeypatch.setattr(ocr_processor, "_resolve_page_count", lambda _document: 6)
+
+    render_calls: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        ocr_processor,
+        "_render_page_images",
+        lambda _file_path, _settings, page_start, page_end, _render_dpi: render_calls.append((page_start, page_end))
+        or [{"page_num": page_num, "image_bytes": f"page-{page_num}".encode("utf-8")} for page_num in range(page_start, page_end + 1)],
+    )
+
+    first_run_calls: list[list[int]] = []
+
+    def fail_on_second_batch(_client, _types, _genai_errors, _settings, rendered_pages, _max_attempts):
+        page_nums = [page["page_num"] for page in rendered_pages]
+        first_run_calls.append(page_nums)
+        if page_nums == [3, 4]:
+            raise AppError("OCR_REQUEST_FAILED", "boom", status_code=502)
+        return [f"Page {page_num}" for page_num in page_nums]
+
+    monkeypatch.setattr(ocr_processor, "_ocr_page_batch", fail_on_second_batch)
+
+    with pytest.raises(AppError):
+        ocr_processor._extract_page_texts_with_gemini({"file_path": str(pdf_path)}, settings)
+
+    second_run_calls: list[list[int]] = []
+
+    def succeed_remaining_batches(_client, _types, _genai_errors, _settings, rendered_pages, _max_attempts):
+        page_nums = [page["page_num"] for page in rendered_pages]
+        second_run_calls.append(page_nums)
+        return [f"Page {page_num}" for page_num in page_nums]
+
+    monkeypatch.setattr(ocr_processor, "_ocr_page_batch", succeed_remaining_batches)
+    render_calls.clear()
+
+    result = ocr_processor._extract_page_texts_with_gemini({"file_path": str(pdf_path)}, settings)
+
+    assert first_run_calls == [[1, 2], [3, 4]]
+    assert second_run_calls == [[3, 4], [5, 6]]
+    assert render_calls == [(3, 4), (5, 6)]
+    assert result == ["Page 1", "Page 2", "Page 3", "Page 4", "Page 5", "Page 6"]
