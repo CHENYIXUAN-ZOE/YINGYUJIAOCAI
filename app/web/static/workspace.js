@@ -1,6 +1,6 @@
 const WORKSPACE_CONFIG = window.APP_CONFIG || {};
 const WORKSPACE_VIEWS = ["overview", "upload", "status", "results", "review", "export"];
-const WORKSPACE_PROCESSING = new Set(["parsing", "structuring", "generating"]);
+const WORKSPACE_PROCESSING = new Set(["queued", "parsing", "structuring", "generating"]);
 
 const workspaceState = {
   activeView: WORKSPACE_VIEWS.includes(WORKSPACE_CONFIG.initialView) ? WORKSPACE_CONFIG.initialView : "overview",
@@ -392,7 +392,7 @@ function renderWorkspaceStatus(job) {
     return;
   }
 
-  const canTriggerParse = ["uploaded", "failed", "completed"].includes(job.status);
+  const canTriggerParse = ["uploaded", "failed", "reviewing", "completed"].includes(job.status);
   statusShell.innerHTML = `
     ${renderJobSnapshot(job, "当前任务已经绑定到工作台，处理状态会自动刷新。")}
     <div class="action-row">
@@ -410,8 +410,8 @@ function renderWorkspaceStatus(job) {
       </button>
       ${
         canTriggerParse
-          ? `<button type="button" id="workspace-parse-trigger" ${job.status === "completed" ? 'data-force="true"' : ""}>
-              ${job.status === "completed" ? "重新解析" : "开始解析"}
+          ? `<button type="button" id="workspace-parse-trigger" ${["reviewing", "completed"].includes(job.status) ? 'data-force="true"' : ""}>
+              ${["reviewing", "completed"].includes(job.status) ? "重新解析" : "开始解析"}
             </button>`
           : ""
       }
@@ -599,17 +599,18 @@ async function triggerWorkspaceParse(forceReparse = false) {
     setWorkspaceFeedback("请先载入任务。", "error");
     return;
   }
-  setWorkspaceFeedback(forceReparse ? "正在重新解析当前教材..." : "正在启动解析链路...");
+  setWorkspaceFeedback(forceReparse ? "正在重新提交当前教材，后台会重新解析..." : "正在提交后台解析任务...");
   switchWorkspaceView("status");
   window.setTimeout(() => {
     refreshWorkspaceCurrentJob().catch(() => undefined);
   }, 800);
   try {
-    await postJson(`${WORKSPACE_CONFIG.apiPrefix}/parse/${encodeURIComponent(workspaceState.currentJobId)}`, {
+    const job = await postJson(`${WORKSPACE_CONFIG.apiPrefix}/parse/${encodeURIComponent(workspaceState.currentJobId)}`, {
       force_reparse: forceReparse,
     });
+    workspaceState.job = job;
     await refreshWorkspaceCurrentJob({ refreshOverview: true });
-    setWorkspaceFeedback("解析与结构化内容生成已完成。");
+    setWorkspaceFeedback("后台任务已启动，工作台会自动刷新当前进度。");
   } catch (error) {
     await refreshWorkspaceCurrentJob({ refreshOverview: true });
     setWorkspaceFeedback(error.message, "error");
@@ -897,9 +898,9 @@ function bindWorkspaceEvents() {
         refreshWorkspaceCurrentJob().catch(() => undefined);
       }, 800);
       await triggerWorkspaceParse(false);
-      setText("upload-stage", "解析完成，可以直接查看内容产出与审核。");
-      setWorkspaceFeedback("当前教材已完成解析并载入工作台。");
-      switchWorkspaceView("results");
+      setText("upload-stage", "后台任务已启动，正在解析教材...");
+      setWorkspaceFeedback("当前教材已进入后台处理，工作台会自动刷新状态。");
+      switchWorkspaceView("status");
     } catch (error) {
       setText("upload-stage", "处理失败");
       const limitMb = error.details?.limit_mb;
