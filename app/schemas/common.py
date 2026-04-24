@@ -45,6 +45,9 @@ class ApiErrorPayload(BaseModel):
     code: str
     message: str
     details: dict[str, Any] = Field(default_factory=dict)
+    retryable: bool = False
+    phase: str | None = None
+    technical_message: str | None = None
 
 
 class ApiResponse(BaseModel):
