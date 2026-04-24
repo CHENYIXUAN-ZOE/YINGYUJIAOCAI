@@ -743,7 +743,12 @@ textarea {
 }
 
 .practice-page {
-  max-width: 1480px;
+  max-width: 1720px;
+}
+
+.workspace-page.practice-page {
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 20px;
 }
 
 .practice-header {
@@ -756,8 +761,8 @@ textarea {
 
 .practice-shell {
   display: grid;
-  grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.2fr) minmax(280px, 0.85fr);
-  gap: 20px;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(620px, 1.45fr) minmax(320px, 0.95fr);
+  gap: 16px;
   align-items: start;
 }
 
@@ -859,6 +864,14 @@ textarea {
   gap: 8px;
 }
 
+.practice-session-actions {
+  justify-content: flex-end;
+}
+
+.practice-config-actions {
+  justify-content: flex-start;
+}
+
 .practice-chat-shell {
   min-height: 520px;
   max-height: 720px;
@@ -907,6 +920,21 @@ textarea {
   justify-self: end;
   background: #f3f6ef;
   border-color: #cdddc7;
+}
+
+.practice-bubble.has-tip {
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.practice-bubble.has-tip:hover {
+  border-color: #c9ab84;
+  box-shadow: 0 10px 22px rgba(70, 56, 31, 0.08);
+}
+
+.practice-bubble.is-tip-action-visible {
+  border-color: #c88e53;
+  box-shadow: 0 12px 24px rgba(140, 94, 34, 0.12);
 }
 
 .practice-bubble-role {
@@ -1101,6 +1129,10 @@ textarea {
 
   .practice-insight-panel {
     position: static;
+  }
+
+  .practice-session-meta {
+    justify-items: start;
   }
 
   .info-grid,

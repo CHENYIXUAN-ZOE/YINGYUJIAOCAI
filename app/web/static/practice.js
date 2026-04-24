@@ -27,6 +27,7 @@ const practiceState = {
   },
   support: {
     activeTab: "tips",
+    revealedTipMessageId: "",
     selectedTipMessageId: "",
     report: null,
     loadingReport: false,
@@ -200,12 +201,18 @@ function renderPracticeMessages() {
         .map((message) => {
           const hasTip = message.role === "user" && message.turnTip?.has_tip;
           const isSelectedTip = hasTip && practiceState.support.selectedTipMessageId === message.id;
+          const isTipActionVisible =
+            hasTip &&
+            (practiceState.support.revealedTipMessageId === message.id || practiceState.support.selectedTipMessageId === message.id);
           return `
-            <article class="practice-bubble practice-bubble-${escapeHtml(message.role)}">
+            <article
+              class="practice-bubble practice-bubble-${escapeHtml(message.role)}${hasTip ? " has-tip" : ""}${isTipActionVisible ? " is-tip-action-visible" : ""}"
+              ${hasTip ? `data-tip-toggle-id="${escapeHtml(message.id)}" title="点击后显示 tips 按钮"` : ""}
+            >
               <div class="practice-bubble-head">
                 <span class="practice-bubble-role">${message.role === "assistant" ? "AI Teacher" : "Student"}</span>
                 ${
-                  hasTip
+                  isTipActionVisible
                     ? `<button
                         type="button"
                         class="practice-tip-button${isSelectedTip ? " is-active" : ""}"
@@ -427,10 +434,13 @@ function renderPracticePage() {
     insightShell.innerHTML = renderPracticeInsightPanel();
   }
   if (insightCaption) {
-    insightCaption.textContent =
-      practiceState.support.activeTab === "report"
-        ? "对话结束后，可在这里查看本次练习的总结与后续建议。"
-        : "点击学生消息旁的 tips 图标查看轻提示。";
+    if (practiceState.support.activeTab === "report") {
+      insightCaption.textContent = "对话结束后，可在这里查看本次练习的总结与后续建议。";
+    } else if (practiceState.support.selectedTipMessageId) {
+      insightCaption.textContent = "当前正在查看这条学生回答对应的轻提示。";
+    } else {
+      insightCaption.textContent = "点击有提示的学生回答后，再点 tips 按钮查看轻提示。";
+    }
   }
   if (tipTabButton) {
     tipTabButton.classList.toggle("is-active", practiceState.support.activeTab === "tips");
@@ -496,6 +506,7 @@ function renderPracticePage() {
 function resetPracticeSupport() {
   practiceState.support = {
     activeTab: "tips",
+    revealedTipMessageId: "",
     selectedTipMessageId: "",
     report: null,
     loadingReport: false,
@@ -665,9 +676,8 @@ async function sendPracticeStudentMessage() {
     practiceState.chat.input = "";
     practiceState.chat.roundCount = response.round_count || practiceState.chat.roundCount + 1;
     practiceState.chat.statusHint = response.status_hint || "";
-    if (response.turn_tip?.has_tip) {
-      practiceState.support.activeTab = "tips";
-      practiceState.support.selectedTipMessageId = userMessage.id;
+    if (response.turn_tip?.has_tip && practiceState.support.revealedTipMessageId === userMessage.id) {
+      practiceState.support.selectedTipMessageId = "";
     }
     practiceState.support.report = null;
     setPracticeFeedback("");
@@ -778,11 +788,24 @@ function bindPracticeEvents() {
 
   document.getElementById("practice-chat-shell")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-tip-message-id]");
-    if (!button) {
+    if (button) {
+      practiceState.support.activeTab = "tips";
+      practiceState.support.revealedTipMessageId = button.dataset.tipMessageId || "";
+      practiceState.support.selectedTipMessageId = button.dataset.tipMessageId || "";
+      renderPracticePage();
       return;
     }
+    const bubble = event.target.closest("[data-tip-toggle-id]");
+    if (!bubble) {
+      return;
+    }
+    const messageId = bubble.dataset.tipToggleId || "";
     practiceState.support.activeTab = "tips";
-    practiceState.support.selectedTipMessageId = button.dataset.tipMessageId || "";
+    practiceState.support.revealedTipMessageId =
+      practiceState.support.revealedTipMessageId === messageId ? "" : messageId;
+    if (practiceState.support.selectedTipMessageId && practiceState.support.selectedTipMessageId !== messageId) {
+      practiceState.support.selectedTipMessageId = "";
+    }
     renderPracticePage();
   });
 
