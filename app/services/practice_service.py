@@ -5,7 +5,7 @@ from typing import Any
 
 from app.clients.openai_compatible.practice_chat_client import OpenAICompatiblePracticeChatClient
 from app.core.errors import AppError
-from app.schemas.practice import PracticeChatRequest
+from app.schemas.practice import PracticeChatRequest, PracticeReportRequest
 from app.services.job_service import JobService
 
 DEFAULT_PROMPT_TEMPLATE_3_4 = """
@@ -211,11 +211,19 @@ class PracticeService:
             payload.is_opening_turn,
         )
         round_count = self._count_rounds(payload.messages, student_message, payload.is_opening_turn)
+        turn_tip = self._build_turn_tip(
+            context,
+            payload.messages,
+            student_message,
+            assistant_message,
+            payload.is_opening_turn,
+        )
 
         return {
             "assistant_message": {"role": "assistant", "content": assistant_message},
             "round_count": round_count,
             "status_hint": "接近建议轮次，但可继续对话" if round_count >= 7 else "",
+            "turn_tip": turn_tip,
             "meta": {
                 "request_id": response.request_id,
                 "provider": self.practice_client.provider_name,
@@ -224,6 +232,11 @@ class PracticeService:
                 "usage": response.usage,
             },
         }
+
+    def build_report(self, payload: PracticeReportRequest) -> dict[str, Any]:
+        context = self._build_context(payload.job_id, payload.unit_id)
+        history = self._normalize_history(payload.messages)
+        return self._build_session_report(context, history)
 
     def build_final_prompt(
         self,
@@ -564,6 +577,300 @@ class PracticeService:
             return f"They're {current_item}. Can you say, 'They're {current_item}'?"
 
         return f"Here are some {current_item}. What are these?"
+
+    def _build_turn_tip(
+        self,
+        context: dict[str, Any],
+        prior_messages: list[Any],
+        student_message: str,
+        assistant_message: str,
+        is_opening_turn: bool,
+    ) -> dict[str, Any]:
+        if is_opening_turn or not student_message.strip():
+            return {"has_tip": False, "tips": []}
+
+        policy = context.get("policy", {}) if isinstance(context, dict) else {}
+        history = self._normalize_history(prior_messages)
+
+        if policy.get("type") == "shopping_roleplay":
+            tips = self._build_shopping_turn_tips(policy, history, student_message, assistant_message)
+        elif policy.get("type") == "deictic_identification":
+            tips = self._build_deictic_turn_tips(policy, history, student_message, assistant_message)
+        else:
+            tips = self._build_general_turn_tips(context, history, student_message)
+
+        return {"has_tip": bool(tips), "tips": tips[:2]}
+
+    def _build_session_report(self, context: dict[str, Any], history: list[dict[str, str]]) -> dict[str, Any]:
+        policy = context.get("policy", {}) if isinstance(context, dict) else {}
+        if policy.get("type") == "shopping_roleplay":
+            return self._build_shopping_report(context, policy, history)
+        if policy.get("type") == "deictic_identification":
+            return self._build_deictic_report(context, policy, history)
+        return self._build_general_report(context, history)
+
+    def _build_shopping_turn_tips(
+        self,
+        policy: dict[str, Any],
+        history: list[dict[str, str]],
+        student_message: str,
+        assistant_message: str,
+    ) -> list[dict[str, str]]:
+        items = policy.get("items", []) if isinstance(policy, dict) else []
+        lowered_student = " ".join(student_message.split()).strip().lower()
+        current_item = (
+            self._detect_item_in_text(lowered_student, items)
+            or self._last_student_item(history, items)
+            or self._last_referenced_item(history, items)
+        )
+
+        if "how much" in lowered_student:
+            if current_item:
+                return [
+                    {
+                        "title": "这一步做得不错",
+                        "message_cn": "你已经主动问价格了，下一句可以继续决定要不要买。",
+                        "example_en": "I will take it.",
+                        "reason_cn": "购物对话里，问完价格后通常会进入购买决定。",
+                    }
+                ]
+            return []
+
+        if current_item and any(token in lowered_student for token in ["want", "like", "take"]):
+            return [
+                {
+                    "title": "这一步可以试试",
+                    "message_cn": "如果你想继续购物，可以主动问价格。",
+                    "example_en": self._shopping_price_question(current_item),
+                    "reason_cn": "这一轮的重点是练习询问价格。",
+                }
+            ]
+
+        if "it is" in lowered_student or "it’s" in lowered_student or "it's" in lowered_student:
+            if current_item:
+                return [
+                    {
+                        "title": "这一步可以更自然",
+                        "message_cn": "你已经表达了喜欢，可以继续决定是否购买，或者主动问价格。",
+                        "example_en": f"How much is the {current_item}?",
+                        "reason_cn": "这样更贴近购物场景的完整对话链路。",
+                    }
+                ]
+
+        if any(token in lowered_student for token in ["thank you", "thanks"]):
+            return [
+                {
+                    "title": "这一步做得不错",
+                    "message_cn": "你已经用上了礼貌表达，下一句可以自然结束对话。",
+                    "example_en": "Goodbye!",
+                    "reason_cn": "礼貌收尾会让购物对话更完整。",
+                }
+            ]
+
+        return []
+
+    def _build_deictic_turn_tips(
+        self,
+        policy: dict[str, Any],
+        history: list[dict[str, str]],
+        student_message: str,
+        assistant_message: str,
+    ) -> list[dict[str, str]]:
+        items = policy.get("items", []) if isinstance(policy, dict) else []
+        lowered_student = " ".join(student_message.split()).strip().lower()
+        current_item = self._detect_item_in_text(lowered_student, items) or self._last_anchor_item(history, items)
+
+        if current_item and "they are" not in lowered_student and "they're" not in lowered_student:
+            return [
+                {
+                    "title": "这一步可以更完整",
+                    "message_cn": "如果你知道答案，可以试着用完整句来回答。",
+                    "example_en": f"They're {current_item}.",
+                    "reason_cn": "这一轮重点是练习完整地说出这些东西是什么。",
+                }
+            ]
+
+        if self._is_yes_no_negative(lowered_student):
+            return [
+                {
+                    "title": "这一步可以再往前走",
+                    "message_cn": "回答完 yes/no 之后，也可以顺手补出真正的名称。",
+                    "example_en": assistant_message,
+                    "reason_cn": "这样会让表达更完整，也更贴近教材目标句型。",
+                }
+            ]
+
+        if current_item and ("they are" in lowered_student or "they're" in lowered_student):
+            return [
+                {
+                    "title": "这一步做得不错",
+                    "message_cn": "你已经用完整句回答了，下一步可以继续练判断句。",
+                    "example_en": f"Are these {current_item}?",
+                    "reason_cn": "这一单元通常会在命名和判断之间切换练习。",
+                }
+            ]
+
+        return []
+
+    def _build_general_turn_tips(
+        self,
+        context: dict[str, Any],
+        history: list[dict[str, str]],
+        student_message: str,
+    ) -> list[dict[str, str]]:
+        lowered_student = " ".join(student_message.split()).strip().lower()
+        last_assistant = next((message for message in reversed(history) if message.get("role") == "assistant"), {})
+        last_prompt = last_assistant.get("content", "").lower()
+        target_patterns = context.get("summary", {}).get("sentence_patterns", []) if isinstance(context, dict) else []
+
+        if "what is your name" in last_prompt and "my name" not in lowered_student and "i am" not in lowered_student:
+            return [
+                {
+                    "title": "这一步可以更完整",
+                    "message_cn": "如果是在自我介绍，可以把名字放进完整句里。",
+                    "example_en": "My name is Amy.",
+                    "reason_cn": "这样会更贴近本轮目标句型。",
+                }
+            ]
+
+        if target_patterns:
+            first_pattern = target_patterns[0]
+            return [
+                {
+                    "title": "这一步可以试试",
+                    "message_cn": "你可以继续往本单元重点句型靠近一点。",
+                    "example_en": first_pattern,
+                    "reason_cn": "这样会更贴近当前单元的练习目标。",
+                }
+            ]
+        return []
+
+    def _build_shopping_report(self, context: dict[str, Any], policy: dict[str, Any], history: list[dict[str, str]]) -> dict[str, Any]:
+        user_messages = [message.get("content", "") for message in history if message.get("role") == "user"]
+        items = policy.get("items", []) if isinstance(policy, dict) else []
+        chose_item = any(self._detect_item_in_text(message.lower(), items) for message in user_messages)
+        asked_price = any("how much" in message.lower() for message in user_messages)
+        decided = any(token in message.lower() for message in user_messages for token in ["i will take", "i want", "no, thank", "no thank"])
+        paid = any("here is the money" in message.lower() for message in user_messages)
+
+        strengths: list[str] = []
+        improvements: list[str] = []
+        next_steps: list[str] = []
+
+        if chose_item:
+            strengths.append("你已经能主动说出自己想买什么。")
+        else:
+            improvements.append("可以更快进入购物场景，先明确说出想买的商品。")
+        if asked_price:
+            strengths.append("你已经主动使用了问价句型。")
+        else:
+            improvements.append("可以更主动练习问价句型。")
+            next_steps.append("下次优先完成“选商品 -> 问价格”的前两步。")
+        if decided:
+            strengths.append("你已经开始向“决定是否购买”这一步推进了。")
+        else:
+            improvements.append("问完价格后，可以继续练习“买不买”的表达。")
+        if paid:
+            strengths.append("你已经把购物对话推进到付款环节了。")
+
+        if not next_steps:
+            next_steps.append("下次尝试完整练完“选商品 -> 问价格 -> 决定购买 -> 付款”这一整条链路。")
+
+        pattern_progress = [
+            {
+                "pattern": "How much is/are ...?",
+                "status": "used" if asked_price else "needs_more_practice",
+                "note_cn": "问价句型是这个单元的核心目标。"
+            },
+            {
+                "pattern": "Here is the money.",
+                "status": "used" if paid else "not_reached",
+                "note_cn": "付款表达通常出现在购物对话的后半段。"
+            },
+        ]
+
+        summary = (
+            "你已经能跟着购物场景继续对话了。"
+            if chose_item
+            else "这次对话已经进入购物主题，但还可以更快进入目标句型。"
+        )
+
+        return {
+            "summary": summary,
+            "strengths": strengths,
+            "improvements": improvements,
+            "pattern_progress": pattern_progress,
+            "next_steps": next_steps,
+        }
+
+    def _build_deictic_report(self, context: dict[str, Any], policy: dict[str, Any], history: list[dict[str, str]]) -> dict[str, Any]:
+        user_messages = [message.get("content", "") for message in history if message.get("role") == "user"]
+        items = policy.get("items", []) if isinstance(policy, dict) else []
+        named_item = any(self._detect_item_in_text(message.lower(), items) for message in user_messages)
+        used_full_sentence = any("they are" in message.lower() or "they're" in message.lower() for message in user_messages)
+        used_yes_no = any(self._is_yes_no_positive(message.lower()) or self._is_yes_no_negative(message.lower()) for message in user_messages)
+
+        strengths: list[str] = []
+        improvements: list[str] = []
+
+        if named_item:
+            strengths.append("你已经能识别并说出部分物品名称。")
+        else:
+            improvements.append("可以更主动说出这些东西的名称。")
+        if used_full_sentence:
+            strengths.append("你已经开始用完整句来回答了。")
+        else:
+            improvements.append("回答时可以尽量用完整句，比如 “They’re tomatoes.”")
+        if used_yes_no:
+            strengths.append("你已经练到了判断句的回答。")
+        else:
+            improvements.append("除了命名以外，也可以继续练习 yes / no 判断句。")
+
+        return {
+            "summary": "你已经进入了“these / those”这一类指物问答练习。",
+            "strengths": strengths,
+            "improvements": improvements,
+            "pattern_progress": [
+                {
+                    "pattern": "What are these/those?",
+                    "status": "used" if named_item else "needs_more_practice",
+                    "note_cn": "这一句型对应“看到物品后说出它们是什么”。"
+                },
+                {
+                    "pattern": "They’re + plural noun.",
+                    "status": "used" if used_full_sentence else "needs_more_practice",
+                    "note_cn": "完整回答会比只说名词更自然。"
+                },
+            ],
+            "next_steps": [
+                "下次可以继续练习“先看见物品，再用完整句回答它们是什么”。",
+                "如果答完名称，还可以继续练“Are these/those ...?”"
+            ],
+        }
+
+    def _build_general_report(self, context: dict[str, Any], history: list[dict[str, str]]) -> dict[str, Any]:
+        user_messages = [message.get("content", "") for message in history if message.get("role") == "user"]
+        target_patterns = context.get("summary", {}).get("sentence_patterns", []) if isinstance(context, dict) else []
+        used_full_sentence = any(len(message.split()) >= 3 for message in user_messages)
+
+        strengths = ["你已经能跟着当前单元继续对话。"] if user_messages else []
+        improvements = [] if used_full_sentence else ["回答可以再完整一点，更贴近本单元目标句型。"]
+        next_steps = ["下次优先尝试把回答放进完整句里。"]
+
+        return {
+            "summary": "这次对话已经围绕当前单元展开。",
+            "strengths": strengths,
+            "improvements": improvements,
+            "pattern_progress": [
+                {
+                    "pattern": pattern,
+                    "status": "in_progress",
+                    "note_cn": "可以继续围绕这个句型多练几轮。"
+                }
+                for pattern in target_patterns[:2]
+            ],
+            "next_steps": next_steps,
+        }
 
     def _normalize_history(self, prior_messages: list[Any]) -> list[dict[str, str]]:
         history: list[dict[str, str]] = []

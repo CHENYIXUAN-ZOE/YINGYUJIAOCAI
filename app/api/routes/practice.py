@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import get_practice_service
 from app.schemas.common import ApiResponse
-from app.schemas.practice import PracticeChatRequest
+from app.schemas.practice import PracticeChatRequest, PracticeReportRequest
 from app.services.practice_service import PracticeService
 
 router = APIRouter(tags=["practice"])
@@ -25,3 +25,11 @@ def practice_chat(
     service: PracticeService = Depends(get_practice_service),
 ):
     return ApiResponse(data=service.chat(request))
+
+
+@router.post("/practice/report", response_model=ApiResponse)
+def practice_report(
+    request: PracticeReportRequest,
+    service: PracticeService = Depends(get_practice_service),
+):
+    return ApiResponse(data=service.build_report(request))

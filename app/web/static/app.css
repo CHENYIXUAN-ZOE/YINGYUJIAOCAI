@@ -756,13 +756,17 @@ textarea {
 
 .practice-shell {
   display: grid;
-  grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.35fr);
+  grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.2fr) minmax(280px, 0.85fr);
   gap: 20px;
   align-items: start;
 }
 
 .practice-column {
   min-width: 0;
+}
+
+.practice-side-column {
+  align-self: stretch;
 }
 
 .practice-form-grid {
@@ -886,6 +890,13 @@ textarea {
   line-height: 1.7;
 }
 
+.practice-bubble-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .practice-bubble-assistant {
   justify-self: start;
   background: #fff8f2;
@@ -906,6 +917,31 @@ textarea {
   letter-spacing: 0.06em;
 }
 
+.practice-tip-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #d9c2a6;
+  background: #fff5e8;
+  color: #8d5a14;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.practice-tip-button:hover {
+  background: #fce9d3;
+}
+
+.practice-tip-button.is-active {
+  background: #f2d9b8;
+  border-color: #c88e53;
+  color: #6e4316;
+}
+
 .practice-status-hint {
   min-height: 24px;
   margin: 0;
@@ -923,6 +959,118 @@ textarea {
   gap: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
+}
+
+.practice-insight-panel {
+  display: grid;
+  gap: 16px;
+  position: sticky;
+  top: 20px;
+}
+
+.practice-insight-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.practice-tab-button {
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fffdf9;
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.practice-tab-button.is-active {
+  background: #f3e4cc;
+  border-color: #d5b890;
+  color: var(--accent-dark);
+}
+
+.practice-insight-toolbar {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: #fcf8f1;
+}
+
+.practice-insight-shell {
+  min-height: 520px;
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at top right, rgba(191, 91, 44, 0.05), transparent 30%),
+    #fffcf6;
+}
+
+.practice-insight-card-list {
+  display: grid;
+  gap: 14px;
+}
+
+.practice-insight-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: #fffdf9;
+  box-shadow: 0 6px 16px rgba(70, 56, 31, 0.05);
+}
+
+.practice-insight-card h4 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--accent-dark);
+}
+
+.practice-insight-card p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.practice-insight-quote {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f6f1e6;
+  border: 1px solid #e4d3b8;
+}
+
+.practice-example-block {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #fff6eb;
+  border: 1px solid #e7d3bf;
+}
+
+.practice-example-block strong {
+  font-size: 16px;
+  color: var(--accent-dark);
+}
+
+.practice-report-list {
+  display: grid;
+  gap: 10px;
+}
+
+.practice-report-item {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8f4ec;
+  border: 1px solid #e4d6c2;
 }
 
 @media (max-width: 960px) {
@@ -949,6 +1097,10 @@ textarea {
   .practice-shell,
   .practice-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .practice-insight-panel {
+    position: static;
   }
 
   .info-grid,

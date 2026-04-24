@@ -193,7 +193,35 @@ class StubPracticeService:
             "assistant_message": {"role": "assistant", "content": "Hi! What will you do this Saturday?"},
             "round_count": 0 if request.is_opening_turn else 1,
             "status_hint": "",
+            "turn_tip": {
+                "has_tip": not request.is_opening_turn,
+                "tips": [
+                    {
+                        "title": "这一步可以试试",
+                        "message_cn": "可以再把回答说完整一点。",
+                        "example_en": "I will go to the park.",
+                        "reason_cn": "这样更贴近当前单元的目标句型。",
+                    }
+                ]
+                if not request.is_opening_turn
+                else [],
+            },
             "meta": {"request_id": "req_demo", "provider": "qwen", "model": "qwen3.5-flash", "latency_ms": 10},
+        }
+
+    def build_report(self, request) -> dict:
+        return {
+            "summary": "你已经能跟着当前单元继续对话。",
+            "strengths": ["能理解简单提问"],
+            "improvements": ["可以更主动使用重点句型"],
+            "pattern_progress": [
+                {
+                    "pattern": "What will you do on ...?",
+                    "status": "in_progress",
+                    "note_cn": "还可以继续多练几轮。",
+                }
+            ],
+            "next_steps": ["下次尝试用完整句回答。"],
         }
 
 
@@ -232,3 +260,26 @@ def test_practice_chat_api():
     assert response.status_code == 200
     payload = response.json()["data"]
     assert payload["assistant_message"]["role"] == "assistant"
+
+
+def test_practice_report_api():
+    app.dependency_overrides[get_practice_service] = lambda: StubPracticeService()
+    try:
+        response = client.post(
+            "/api/v1/practice/report",
+            json={
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "messages": [
+                    {"role": "assistant", "content": "Hi!"},
+                    {"role": "user", "content": "I will go to the park."},
+                ],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert "summary" in payload
+    assert payload["pattern_progress"][0]["status"] == "in_progress"
