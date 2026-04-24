@@ -522,7 +522,7 @@ async function loadPracticeJobs() {
   practiceState.loadingJobs = true;
   renderPracticePage();
   try {
-    const overview = await requestJson(`${PRACTICE_CONFIG.apiPrefix}/overview?limit=20`);
+    const overview = await requestJson(`${PRACTICE_CONFIG.apiPrefix}/overview?limit=500`);
     practiceState.jobs = (overview.recent_jobs || []).filter((job) => job.has_result);
   } finally {
     practiceState.loadingJobs = false;
