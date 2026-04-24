@@ -12,6 +12,18 @@ const workspaceState = {
   pollTimer: null,
 };
 
+function sortWorkspaceRecentJobs(jobs) {
+  return [...jobs].sort((left, right) => {
+    const resultDelta = Number(Boolean(right?.has_result)) - Number(Boolean(left?.has_result));
+    if (resultDelta !== 0) {
+      return resultDelta;
+    }
+    const leftTime = Date.parse(left?.created_at || "") || 0;
+    const rightTime = Date.parse(right?.created_at || "") || 0;
+    return rightTime - leftTime;
+  });
+}
+
 function buildWorkspaceUrl(jobId = "", view = workspaceState.activeView) {
   const query = new URLSearchParams();
   if (jobId) {
@@ -514,9 +526,10 @@ function scheduleWorkspacePolling(job) {
 async function loadWorkspaceOverview() {
   const payload = await requestJson(`${WORKSPACE_CONFIG.apiPrefix}/overview?limit=500`);
   workspaceState.overview = payload;
+  const displayJobs = sortWorkspaceRecentJobs(payload.recent_jobs || []);
   setHtml("overview-summary", renderOverviewSummary(payload));
-  setHtml("overview-jobs", renderRecentJobsTable(payload.recent_jobs || []));
-  setHtml("sidebar-recent-jobs", renderSidebarRecentJobs(payload.recent_jobs || []));
+  setHtml("overview-jobs", renderRecentJobsTable(displayJobs));
+  setHtml("sidebar-recent-jobs", renderSidebarRecentJobs(displayJobs));
   setHtml("overview-exports", renderRecentExports(payload.recent_exports || []));
 }
 
