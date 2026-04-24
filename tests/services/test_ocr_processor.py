@@ -197,6 +197,25 @@ def test_process_rebuilds_document_from_gemini_ocr_output(tmp_path, monkeypatch)
     assert result["text_layer_lines"] == ["stale text"]
 
 
+def test_resolve_page_count_prefers_pdfinfo_for_raw_stream_documents(tmp_path, monkeypatch):
+    pdf_path = tmp_path / "scan.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4")
+
+    monkeypatch.setattr(ocr_processor, "_probe_page_count", lambda _path: 81)
+
+    document = {
+        "file_path": str(pdf_path),
+        "extractor": "raw_stream",
+        "page_texts": ["garbled block 1", "garbled block 2"],
+        "page_lines": [
+            {"page_num": 1, "line": "garbled block 1"},
+            {"page_num": 2, "line": "garbled block 2"},
+        ],
+    }
+
+    assert ocr_processor._resolve_page_count(document) == 81
+
+
 def test_normalize_ocr_payload_rejects_page_count_mismatch():
     with pytest.raises(ValueError):
         ocr_processor._normalize_ocr_payload(
