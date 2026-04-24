@@ -584,6 +584,40 @@ def test_chat_preference_tip_prefers_current_answer_not_object_naming_pattern(tm
     assert payload["turn_tip"]["tips"][0]["example_en"] == "I like apples."
 
 
+def test_chat_yes_no_tip_uses_judgement_reply_after_multi_sentence_prompt(tmp_path):
+    job_service = StubJobService()
+    job_service.payload["units"][0]["unit"]["unit_theme"] = "Fruits"
+    job_service.payload["units"][0]["unit"]["classification"]["unit_name"] = "Fruits"
+    job_service.payload["units"][0]["vocabulary"] = [{"word": "banana"}, {"word": "lemon"}]
+    job_service.payload["units"][0]["sentence_patterns"] = [
+        {"pattern": "It's a lemon."},
+        {"pattern": "Is a lemon sour?"},
+    ]
+    job_service.payload["units"][0]["unit_task"] = {"task_intro": "谈论水果的味道。"}
+    service = PracticeService(job_service, StubPracticeClient(configured=True))
+
+    payload = service.chat(
+        type(
+            "Req",
+            (),
+            {
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "grade_band": "3-4",
+                "prompt_template": "template",
+                "final_prompt": "final prompt",
+                "messages": [{"role": "assistant", "content": "That is interesting! Most bananas are sweet. Is a lemon sour?"}],
+                "student_message": "no",
+                "is_opening_turn": False,
+            },
+        )()
+    )
+
+    assert payload["turn_tip"]["has_tip"] is True
+    assert payload["turn_tip"]["tips"][0]["tip_type"] == "sound_more_natural"
+    assert payload["turn_tip"]["tips"][0]["example_en"] == "No, it isn't."
+
+
 def test_chat_deictic_opening_introduces_anchor_item(tmp_path):
     job_service = StubJobService()
     unit = job_service.payload["units"][0]

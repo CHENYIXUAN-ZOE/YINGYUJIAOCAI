@@ -1078,6 +1078,19 @@ class PracticeService:
                 ]
 
         if expected_move == "answer_yes_no":
+            if actual_move == "yes_no_only":
+                polarity_example = "No, it isn't." if self._is_yes_no_negative(lowered_student) else "Yes, it is."
+                return [
+                    self._build_tip(
+                        tip_type="sound_more_natural",
+                        title="这一步可以更自然",
+                        message_cn="只说 yes / no 也可以，如果想更像完整对话，可以把判断说完整。",
+                        example_en=polarity_example,
+                        reason_cn="这样会更贴近判断句里的自然回答。",
+                        expected_move=expected_move,
+                        actual_move=actual_move,
+                    )
+                ]
             if actual_move not in {"yes_no_only", "yes_no_plus_detail", "on_track"}:
                 return [
                     self._build_tip(
@@ -1455,7 +1468,7 @@ class PracticeService:
         return "other"
 
     def _infer_general_expected_move(self, last_prompt: str, target_patterns: list[str]) -> str:
-        prompt = (last_prompt or "").lower()
+        prompt = self._focus_prompt(last_prompt)
         patterns = " | ".join(target_patterns).lower()
         if "what is your name" in prompt or "what's your name" in prompt:
             return "say_name"
@@ -1582,6 +1595,18 @@ class PracticeService:
                 if "..." not in pattern and "?" not in pattern:
                     return pattern
         return f"It is {article} {word}."
+
+    def _focus_prompt(self, last_prompt: str) -> str:
+        prompt = (last_prompt or "").strip().lower()
+        if not prompt:
+            return ""
+        question_parts = re.findall(r"[^?.!]*\?", prompt)
+        for part in reversed(question_parts):
+            cleaned = part.strip()
+            if cleaned:
+                return cleaned
+        segments = [segment.strip() for segment in re.split(r"[.!]+", prompt) if segment.strip()]
+        return segments[-1] if segments else prompt
 
     def _preference_example(self, student_message: str, vocabulary: list[str]) -> str:
         lowered = student_message.lower()
