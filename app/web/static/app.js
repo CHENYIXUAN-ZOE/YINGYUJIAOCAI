@@ -106,6 +106,9 @@ function renderJobSnapshot(job, detail) {
   if (Number.isFinite(job.retry_count) && job.retry_count > 0) {
     progressDetails.push(`重试 ${job.retry_count} 次`);
   }
+  if (job.retryable) {
+    progressDetails.push("可重试");
+  }
 
   return `
     <div class="info-grid">
@@ -141,7 +144,11 @@ async function requestJson(url, options = {}) {
   if (!response.ok) {
     const error = new Error(payload?.error?.message || payload?.message || `request failed (${response.status})`);
     error.status = response.status;
+    error.code = payload?.error?.code || null;
     error.details = payload?.error?.details || {};
+    error.retryable = Boolean(payload?.error?.retryable);
+    error.phase = payload?.error?.phase || null;
+    error.technicalMessage = payload?.error?.technical_message || null;
     throw error;
   }
   return payload?.data ?? payload;

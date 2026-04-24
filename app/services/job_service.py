@@ -140,7 +140,14 @@ class JobService:
     def delete_job(self, job_id: str) -> dict:
         job = self.get_job(job_id)
         if job.status in PROCESSING_STATUSES:
-            raise AppError("JOB_BUSY", "job is currently processing", status_code=409)
+            raise AppError(
+                "JOB_BUSY",
+                "job is currently processing",
+                status_code=409,
+                details={"job_id": job.job_id, "status": job.status.value, "phase": job.phase},
+                retryable=True,
+                phase=job.phase,
+            )
 
         self.result_repo.delete(job_id)
         self.review_repo.delete(job_id)
@@ -162,18 +169,61 @@ class JobService:
         self._prepare_job_for_parse(job_id, force_reparse=force_reparse, queued=False)
         return self._run_parse_pipeline(job_id)
 
+    def recover_incomplete_jobs(self) -> list[ParseJob]:
+        recovered_jobs: list[ParseJob] = []
+        for job in self.job_repo.list():
+            if job.status not in PROCESSING_STATUSES:
+                continue
+            with self._lock:
+                active_future = self._active_jobs.get(job.job_id)
+                if active_future and not active_future.done():
+                    continue
+            self.result_repo.delete(job.job_id)
+            self.review_repo.delete(job.job_id)
+            recovered_jobs.append(
+                self._set_job_state(
+                    job,
+                    status=ParseStatus.failed,
+                    phase="failed",
+                    phase_message="检测到上次处理在中途结束，任务已恢复为可重试状态。",
+                    error_message="上次处理因服务重启或异常中断而未完成，请重新解析。",
+                    last_error_code="JOB_RECOVERED_AFTER_RESTART",
+                    retryable=True,
+                    finished_at=_now_iso(),
+                )
+            )
+        return recovered_jobs
+
     def _prepare_job_for_parse(self, job_id: str, force_reparse: bool, queued: bool) -> ParseJob:
         with self._lock:
             active_future = self._active_jobs.get(job_id)
             if active_future and not active_future.done():
-                raise AppError("INVALID_REQUEST", "job is already processing", status_code=400)
+                raise AppError(
+                    "INVALID_REQUEST",
+                    "job is already processing",
+                    status_code=400,
+                    details={"job_id": job_id},
+                    retryable=True,
+                )
 
         job = self.get_job(job_id)
         initial_statuses = {ParseStatus.uploaded, ParseStatus.failed}
         reparsable_statuses = initial_statuses | {ParseStatus.reviewing, ParseStatus.completed}
         allowed_statuses = reparsable_statuses if force_reparse else initial_statuses
         if job.status not in allowed_statuses:
-            raise AppError("INVALID_REQUEST", "job cannot be started in its current state", status_code=400)
+            raise AppError(
+                "INVALID_REQUEST",
+                "job cannot be started in its current state",
+                status_code=400,
+                details={
+                    "job_id": job.job_id,
+                    "status": job.status.value,
+                    "phase": job.phase,
+                    "force_reparse": force_reparse,
+                },
+                retryable=job.status in reparsable_statuses,
+                phase=job.phase,
+            )
 
         self.result_repo.delete(job_id)
         self.review_repo.delete(job_id)
@@ -333,7 +383,7 @@ class JobService:
         except Exception as exc:
             error_code = exc.code if isinstance(exc, AppError) else "UNEXPECTED_ERROR"
             error_message = exc.message if isinstance(exc, AppError) else str(exc)
-            retryable = not isinstance(exc, AppError) or exc.status_code >= 500
+            retryable = exc.retryable if isinstance(exc, AppError) else True
             self._set_job_state(
                 job,
                 status=ParseStatus.failed,
@@ -473,6 +523,39 @@ class JobService:
         with self._lock:
             self._active_jobs.pop(job_id, None)
 
+    def _build_result_not_ready_error(self, job: ParseJob) -> AppError:
+        if job.status == ParseStatus.failed:
+            return AppError(
+                "PARSE_FAILED",
+                "job failed before result became available",
+                status_code=409,
+                details={
+                    "job_id": job.job_id,
+                    "status": job.status.value,
+                    "phase": job.phase,
+                    "last_error_code": job.last_error_code,
+                    "retryable": job.retryable,
+                    "job_error_message": job.error_message,
+                },
+                retryable=job.retryable,
+                phase=job.phase,
+                technical_message=job.error_message,
+            )
+        return AppError(
+            "PARSE_NOT_READY",
+            "result is not ready",
+            status_code=409,
+            details={
+                "job_id": job.job_id,
+                "status": job.status.value,
+                "phase": job.phase,
+                "progress": job.progress,
+                "retryable": job.retryable,
+            },
+            retryable=job.status in PROCESSING_STATUSES,
+            phase=job.phase,
+        )
+
     def _infer_textbook_version(self, file_name: str) -> str:
         if "人教" in file_name:
             return "人教版"
@@ -483,10 +566,10 @@ class JobService:
     def get_result(self, job_id: str, approved_only: bool = False, include_review_records: bool = True) -> dict:
         job = self.get_job(job_id)
         if job.status not in {ParseStatus.reviewing, ParseStatus.completed}:
-            raise AppError("PARSE_NOT_READY", "result is not ready", status_code=409)
+            raise self._build_result_not_ready_error(job)
         payload = self.result_repo.get(job_id)
         if not payload:
-            raise AppError("PARSE_NOT_READY", "result is not ready", status_code=409)
+            raise self._build_result_not_ready_error(job)
         filtered = self._filter_payload(payload, approved_only=approved_only)
         if not include_review_records:
             filtered["review_records"] = []

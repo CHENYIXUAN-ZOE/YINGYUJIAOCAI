@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+import logging
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
@@ -22,8 +25,50 @@ from app.api.deps import get_job_service
 
 settings = get_settings()
 templates = Jinja2Templates(directory=str(settings.template_dir))
+logger = logging.getLogger(__name__)
 
-app = FastAPI(title=settings.project_name)
+def _is_api_request(request: Request) -> bool:
+    return request.url.path.startswith(settings.api_prefix)
+
+
+def _error_response(
+    *,
+    status_code: int,
+    code: str,
+    message: str,
+    details: dict | None = None,
+    retryable: bool = False,
+    phase: str | None = None,
+    technical_message: str | None = None,
+):
+    return JSONResponse(
+        status_code=status_code,
+        content=ErrorResponse(
+            error={
+                "code": code,
+                "message": message,
+                "details": details or {},
+                "retryable": retryable,
+                "phase": phase,
+                "technical_message": technical_message,
+            }
+        ).model_dump(),
+    )
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    recovered_jobs = get_job_service().recover_incomplete_jobs()
+    if recovered_jobs:
+        logger.warning(
+            "Recovered %s interrupted jobs on startup: %s",
+            len(recovered_jobs),
+            ", ".join(job.job_id for job in recovered_jobs),
+        )
+    yield
+
+
+app = FastAPI(title=settings.project_name, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
 
 app.include_router(upload_router, prefix=settings.api_prefix)
@@ -36,29 +81,48 @@ app.include_router(export_router, prefix=settings.api_prefix)
 
 @app.exception_handler(AppError)
 async def app_error_handler(_: Request, exc: AppError):
-    return JSONResponse(
+    return _error_response(
         status_code=exc.status_code,
-        content=ErrorResponse(error={"code": exc.code, "message": exc.message, "details": exc.details}).model_dump(),
+        code=exc.code,
+        message=exc.message,
+        details=exc.details,
+        retryable=exc.retryable,
+        phase=exc.phase,
+        technical_message=exc.technical_message,
     )
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(_: Request, exc: RequestValidationError):
-    return JSONResponse(
+    return _error_response(
         status_code=400,
-        content=ErrorResponse(
-            error={
-                "code": "INVALID_REQUEST",
-                "message": "request validation failed",
-                "details": {"errors": exc.errors()},
-            }
-        ).model_dump(),
+        code="INVALID_REQUEST",
+        message="request validation failed",
+        details={"errors": exc.errors()},
     )
 
 
 @app.exception_handler(StarletteHTTPException)
 async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    if _is_api_request(request):
+        message = exc.detail if isinstance(exc.detail, str) else "http error"
+        code = f"HTTP_{exc.status_code}"
+        return _error_response(status_code=exc.status_code, code=code, message=message)
     return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception for %s %s", request.method, request.url.path, exc_info=exc)
+    if _is_api_request(request):
+        return _error_response(
+            status_code=500,
+            code="INTERNAL_ERROR",
+            message="internal server error",
+            retryable=True,
+            technical_message=str(exc),
+        )
+    return HTMLResponse("Internal Server Error", status_code=500)
 
 
 @app.get("/", response_class=HTMLResponse)
