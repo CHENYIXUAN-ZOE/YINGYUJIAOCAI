@@ -130,6 +130,16 @@ def _resolve_project_id(settings: Settings, credentials_path: Path | None) -> st
 
 
 def _resolve_page_count(document: dict) -> int:
+    extractor = document.get("extractor")
+    file_path = document.get("file_path")
+
+    # For scanned PDFs, raw stream extraction may only produce a few internal text
+    # blocks rather than one entry per page. In that case, trust pdfinfo first.
+    if extractor and extractor != "pdftotext" and file_path:
+        probed_count = _probe_page_count(Path(file_path))
+        if probed_count:
+            return probed_count
+
     page_texts = document.get("page_texts") or []
     if page_texts:
         return len(page_texts)
@@ -138,7 +148,6 @@ def _resolve_page_count(document: dict) -> int:
     if page_lines:
         return max(int(item.get("page_num", 1)) for item in page_lines)
 
-    file_path = document.get("file_path")
     if file_path:
         probed_count = _probe_page_count(Path(file_path))
         if probed_count:

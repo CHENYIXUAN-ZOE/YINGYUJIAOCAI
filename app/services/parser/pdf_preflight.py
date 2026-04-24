@@ -33,13 +33,20 @@ class TextSampleAssessment:
 
     @property
     def usable_text_layer(self) -> bool:
-        if self.char_count < _TEXT_SAMPLE_THRESHOLD:
-            return False
-        if self.english_token_count < _MIN_ENGLISH_TOKENS:
-            return False
-        if self.readable_line_count < _MIN_READABLE_LINES:
-            return False
-        return self.readable_ratio >= _MIN_READABLE_RATIO
+        short_sample_is_clear = (
+            self.char_count > 0
+            and self.english_token_count >= 3
+            and self.readable_line_count >= 1
+            and self.readable_ratio >= 0.5
+        )
+        strong_readable_signal = self.english_token_count >= 20 and self.readable_line_count >= 8
+        long_sample_is_clear = (
+            self.char_count >= _TEXT_SAMPLE_THRESHOLD
+            and self.english_token_count >= _MIN_ENGLISH_TOKENS
+            and self.readable_line_count >= _MIN_READABLE_LINES
+            and (self.readable_ratio >= _MIN_READABLE_RATIO or strong_readable_signal)
+        )
+        return short_sample_is_clear or long_sample_is_clear
 
 
 def analyze_pdf(file_path: Path) -> PdfPreflight:
