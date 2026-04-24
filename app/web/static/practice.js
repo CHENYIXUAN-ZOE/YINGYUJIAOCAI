@@ -778,8 +778,13 @@ function bindPracticeEvents() {
   document.getElementById("practice-chat-shell")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-tip-message-id]");
     if (button) {
-      practiceState.support.activeTab = "tips";
-      practiceState.support.selectedTipMessageId = button.dataset.tipMessageId || "";
+      const messageId = button.dataset.tipMessageId || "";
+      if (practiceState.support.activeTab === "tips" && practiceState.support.selectedTipMessageId === messageId) {
+        practiceState.support.selectedTipMessageId = "";
+      } else {
+        practiceState.support.activeTab = "tips";
+        practiceState.support.selectedTipMessageId = messageId;
+      }
       renderPracticePage();
     }
   });
