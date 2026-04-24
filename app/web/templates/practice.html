@@ -133,7 +133,32 @@
                 <div class="action-row">
                   <button type="button" class="secondary" id="practice-clear-input-button">清空输入</button>
                   <button type="button" id="practice-send-button">发送</button>
+                  <button type="button" class="secondary" id="practice-report-trigger">查看对话报告</button>
                 </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="practice-column practice-side-column">
+            <section class="panel practice-insight-panel">
+              <div class="section-head">
+                <div>
+                  <p class="eyebrow">Support Panel</p>
+                  <h3>学习辅助</h3>
+                </div>
+                <div class="practice-insight-tabs" role="tablist" aria-label="学习辅助">
+                  <button type="button" id="practice-tab-tips" class="practice-tab-button is-active" data-practice-tab="tips">Tips</button>
+                  <button type="button" id="practice-tab-report" class="practice-tab-button" data-practice-tab="report">对话报告</button>
+                </div>
+              </div>
+
+              <div class="practice-insight-toolbar">
+                <p id="practice-insight-caption" class="meta-text">点击学生消息旁的 tips 图标查看轻提示。</p>
+                <button type="button" class="secondary" id="practice-report-button">生成对话报告</button>
+              </div>
+
+              <div id="practice-insight-shell" class="practice-insight-shell">
+                <div class="empty-state compact-empty">点击学生消息旁的 tips 图标查看轻提示。</div>
               </div>
             </section>
           </div>

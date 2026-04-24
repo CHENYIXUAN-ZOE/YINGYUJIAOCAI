@@ -19,3 +19,9 @@ class PracticeChatRequest(BaseModel):
     messages: list[PracticeMessage] = Field(default_factory=list)
     student_message: str | None = None
     is_opening_turn: bool = False
+
+
+class PracticeReportRequest(BaseModel):
+    job_id: str
+    unit_id: str
+    messages: list[PracticeMessage] = Field(default_factory=list)
