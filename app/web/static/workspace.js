@@ -512,7 +512,7 @@ function scheduleWorkspacePolling(job) {
 }
 
 async function loadWorkspaceOverview() {
-  const payload = await requestJson(`${WORKSPACE_CONFIG.apiPrefix}/overview?limit=12`);
+  const payload = await requestJson(`${WORKSPACE_CONFIG.apiPrefix}/overview?limit=500`);
   workspaceState.overview = payload;
   setHtml("overview-summary", renderOverviewSummary(payload));
   setHtml("overview-jobs", renderRecentJobsTable(payload.recent_jobs || []));
