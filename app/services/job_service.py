@@ -15,14 +15,7 @@ from app.repositories.job_repo import JobRepository
 from app.repositories.result_repo import ResultRepository
 from app.repositories.review_repo import ReviewRepository
 from app.schemas.common import GenerationMode, ParseStatus, ReviewStatus
-from app.schemas.content import (
-    Book,
-    Classification,
-    ExportMeta,
-    StructuredContent,
-    UnitPackage,
-    UnitRecord,
-)
+from app.schemas.content import Book, Classification, ExportMeta, StructuredContent, UnitPackage, UnitRecord
 from app.schemas.export import ExportRequest
 from app.schemas.job import JobStatusResponse, ParseJob
 from app.services.exporter.json_exporter import export_json
@@ -181,7 +174,6 @@ class JobService:
                 active_future = self._active_jobs.get(job.job_id)
                 if active_future and not active_future.done():
                     continue
-            self.result_repo.delete(job.job_id)
             self.review_repo.delete(job.job_id)
             recovered_jobs.append(
                 self._set_job_state(
@@ -228,7 +220,9 @@ class JobService:
                 phase=job.phase,
             )
 
-        self.result_repo.delete(job_id)
+        preserve_partial_result = job.status == ParseStatus.failed and not force_reparse
+        if not preserve_partial_result:
+            self.result_repo.delete(job_id)
         self.review_repo.delete(job_id)
 
         retry_count = job.retry_count
@@ -348,17 +342,26 @@ class JobService:
                     unit_done=processed_units,
                 )
 
+            partial_result, completed_units = self._prepare_incremental_result(job, units)
+
             job = self._set_job_state(
                 job,
                 status=ParseStatus.generating,
-                progress=60,
+                progress=min(95, 60 + int(35 * completed_units / len(units))) if units else 60,
                 phase="generating_units",
                 phase_message=f"正在生成 {len(units)} 个单元的结构化内容。",
                 unit_total=len(units),
-                unit_done=0,
+                unit_done=completed_units,
             )
 
-            result = self._build_result(job, document, units, generation_progress_callback=update_generation_progress)
+            result = self._build_result(
+                job,
+                document,
+                units,
+                generation_progress_callback=update_generation_progress,
+                existing_payload=partial_result,
+                completed_units=completed_units,
+            )
             job = self._set_job_state(
                 job,
                 status=ParseStatus.generating,
@@ -405,52 +408,26 @@ class JobService:
         document: dict,
         units: list[dict],
         generation_progress_callback=None,
+        existing_payload: dict | None = None,
+        completed_units: int = 0,
     ) -> dict:
-        textbook_version = self._infer_textbook_version(job.file_name)
-        textbook_name = Path(job.file_name).stem
-        book = Book(
-            book_id=f"book_{job.job_id}",
-            textbook_version=textbook_version,
-            textbook_name=textbook_name,
-            publisher=textbook_version,
-            source_job_id=job.job_id,
-            source_pages=[1],
-            confidence=0.5,
-            review_status=ReviewStatus.pending,
-        )
-        unit_packages: list[UnitPackage] = []
-        for index, raw_unit in enumerate(units, start=1):
-            classification = Classification(
-                textbook_version=textbook_version,
-                textbook_name=textbook_name,
-                unit_code=raw_unit["unit_code"],
-                unit_name=raw_unit["unit_name"],
-            )
-            unit_id = f"{job.job_id}_unit_{index}"
-            unit_record = UnitRecord(
-                unit_id=unit_id,
-                classification=classification,
-                unit_theme=raw_unit.get("unit_theme"),
-                source_pages=raw_unit.get("source_pages", [1]),
-                confidence=0.5,
-                review_status=ReviewStatus.pending,
-            )
-            unit_packages.append(self.unit_content_generator.build_unit_package(unit_record, raw_unit))
-            if generation_progress_callback:
-                generation_progress_callback(index, len(units))
-        payload = StructuredContent(
-            job=job.model_dump(mode="json"),
-            book=book,
-            units=unit_packages,
-            review_records=[],
-            export_meta=ExportMeta(
+        payload = existing_payload or self._initialize_result_payload(job, units)
+        unit_packages = payload.setdefault("units", [])
+        for index, raw_unit in enumerate(units[completed_units:], start=completed_units + 1):
+            unit_record = self._build_unit_record(job, raw_unit, index)
+            unit_package = self.unit_content_generator.build_unit_package(unit_record, raw_unit)
+            unit_packages.append(unit_package.model_dump(mode="json"))
+            payload["job"] = job.model_dump(mode="json")
+            payload["export_meta"] = ExportMeta(
                 schema_version="v1",
                 export_scope="book",
                 approved_only=True,
-                unit_ids=[package.unit.unit_id for package in unit_packages],
-            ),
-        )
-        return payload.model_dump(mode="json")
+                unit_ids=[package["unit"]["unit_id"] for package in unit_packages],
+            ).model_dump(mode="json")
+            self.result_repo.save(job.job_id, payload)
+            if generation_progress_callback:
+                generation_progress_callback(index, len(units))
+        return payload
 
     def _estimate_page_total(self, document: dict) -> int:
         page_texts = document.get("page_texts") or []
@@ -460,6 +437,85 @@ class JobService:
         if page_lines:
             return max(int(item.get("page_num", 1)) for item in page_lines)
         return 0
+
+    def _initialize_result_payload(self, job: ParseJob, units: list[dict]) -> dict:
+        textbook_version = self._infer_textbook_version(job.file_name)
+        textbook_name = Path(job.file_name).stem
+        payload = StructuredContent(
+            job=job.model_dump(mode="json"),
+            book=Book(
+                book_id=f"book_{job.job_id}",
+                textbook_version=textbook_version,
+                textbook_name=textbook_name,
+                publisher=textbook_version,
+                source_job_id=job.job_id,
+                source_pages=[1],
+                confidence=0.5,
+                review_status=ReviewStatus.pending,
+            ),
+            units=[],
+            review_records=[],
+            export_meta=ExportMeta(
+                schema_version="v1",
+                export_scope="book",
+                approved_only=True,
+                unit_ids=[f"{job.job_id}_unit_{index}" for index in range(1, len(units) + 1)],
+            ),
+        )
+        return payload.model_dump(mode="json")
+
+    def _build_unit_record(self, job: ParseJob, raw_unit: dict, index: int) -> UnitRecord:
+        textbook_version = self._infer_textbook_version(job.file_name)
+        textbook_name = Path(job.file_name).stem
+        classification = Classification(
+            textbook_version=textbook_version,
+            textbook_name=textbook_name,
+            unit_code=raw_unit["unit_code"],
+            unit_name=raw_unit["unit_name"],
+        )
+        return UnitRecord(
+            unit_id=f"{job.job_id}_unit_{index}",
+            classification=classification,
+            unit_theme=raw_unit.get("unit_theme"),
+            source_pages=raw_unit.get("source_pages", [1]),
+            confidence=0.5,
+            review_status=ReviewStatus.pending,
+        )
+
+    def _prepare_incremental_result(self, job: ParseJob, units: list[dict]) -> tuple[dict, int]:
+        payload = self.result_repo.get(job.job_id)
+        if not payload:
+            payload = self._initialize_result_payload(job, units)
+            self.result_repo.save(job.job_id, payload)
+            return payload, 0
+
+        if not self._is_reusable_partial_result(job, payload, units):
+            payload = self._initialize_result_payload(job, units)
+            self.result_repo.save(job.job_id, payload)
+            return payload, 0
+
+        payload["job"] = job.model_dump(mode="json")
+        payload["review_records"] = []
+        self.result_repo.save(job.job_id, payload)
+        return payload, len(payload.get("units") or [])
+
+    def _is_reusable_partial_result(self, job: ParseJob, payload: dict, units: list[dict]) -> bool:
+        if payload.get("job", {}).get("job_id") != job.job_id:
+            return False
+        existing_units = payload.get("units") or []
+        if len(existing_units) > len(units):
+            return False
+        for index, unit_package in enumerate(existing_units, start=1):
+            unit_record = unit_package.get("unit") or {}
+            raw_unit = units[index - 1]
+            if unit_record.get("unit_id") != f"{job.job_id}_unit_{index}":
+                return False
+            classification = unit_record.get("classification") or {}
+            if classification.get("unit_code") != raw_unit.get("unit_code"):
+                return False
+            if classification.get("unit_name") != raw_unit.get("unit_name"):
+                return False
+        return True
 
     def _set_job_state(
         self,
@@ -608,7 +664,8 @@ class JobService:
 
         for job in jobs:
             status_counts[job.status.value] += 1
-            result = self.result_repo.get(job.job_id)
+            stored_result = self.result_repo.get(job.job_id)
+            result = stored_result if job.status in {ParseStatus.reviewing, ParseStatus.completed} else None
             review_records = self.review_repo.get(job.job_id)
             result_summary = self._summarize_result(result)
             review_summary = self._summarize_review(result)
