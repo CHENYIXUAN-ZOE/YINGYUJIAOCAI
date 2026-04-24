@@ -42,6 +42,8 @@ class OpenAICompatiblePracticeChatClient:
             "temperature": 0.7,
             "stream": False,
         }
+        if self._should_disable_thinking():
+            request_payload["enable_thinking"] = False
 
         encoded_body = json.dumps(request_payload).encode("utf-8")
         req = urlrequest.Request(
@@ -108,6 +110,18 @@ class OpenAICompatiblePracticeChatClient:
         if base_url.endswith("/chat/completions"):
             return base_url
         return f"{base_url}/chat/completions"
+
+    def _should_disable_thinking(self) -> bool:
+        model_name = self.model_name().lower()
+        if not model_name.startswith("qwen3"):
+            return False
+
+        provider_name = self.provider_name
+        if provider_name in {"qwen", "dashscope"}:
+            return True
+
+        base_url = (self.settings.openai_base_url or "").lower()
+        return "dashscope.aliyuncs.com" in base_url
 
     def _extract_assistant_message(self, payload: dict[str, Any]) -> str:
         choices = payload.get("choices") or []

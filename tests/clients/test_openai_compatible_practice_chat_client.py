@@ -54,6 +54,8 @@ def test_create_chat_completion_parses_string_content(tmp_path, monkeypatch):
     def fake_urlopen(request, timeout=0):
         assert request.full_url.endswith("/chat/completions")
         assert timeout == 60
+        payload = json.loads(request.data.decode("utf-8"))
+        assert payload["enable_thinking"] is False
         return StubHTTPResponse(
             {
                 "id": "req_demo",
@@ -90,3 +92,31 @@ def test_create_chat_completion_maps_http_errors(tmp_path, monkeypatch):
 
     assert exc_info.value.code == "PRACTICE_PROVIDER_REQUEST_FAILED"
     assert exc_info.value.details["status"] == 401
+
+
+def test_create_chat_completion_does_not_force_thinking_toggle_for_non_qwen_provider(tmp_path, monkeypatch):
+    settings = build_settings(tmp_path).model_copy(
+        update={
+            "practice_provider_name": "openai-compatible",
+            "practice_model": "gpt-4.1-mini",
+            "openai_base_url": "https://api.openai.example/v1",
+        }
+    )
+    client = OpenAICompatiblePracticeChatClient(settings)
+
+    def fake_urlopen(request, timeout=0):
+        payload = json.loads(request.data.decode("utf-8"))
+        assert "enable_thinking" not in payload
+        return StubHTTPResponse(
+            {
+                "id": "req_demo",
+                "usage": {"prompt_tokens": 8},
+                "choices": [{"message": {"content": "Hi there"}}],
+            }
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    response = client.create_chat_completion([{"role": "system", "content": "prompt"}])
+
+    assert response.assistant_message == "Hi there"
