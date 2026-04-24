@@ -26,6 +26,7 @@ class Settings(BaseModel):
     practice_provider_name: str = Field(default_factory=lambda: os.getenv("PRACTICE_PROVIDER_NAME", "openai-compatible"))
     practice_model: str | None = Field(default_factory=lambda: os.getenv("PRACTICE_MODEL"))
     practice_timeout_sec: int = Field(default_factory=lambda: int(os.getenv("PRACTICE_TIMEOUT_SEC", "60")))
+    practice_temperature: float = Field(default_factory=lambda: float(os.getenv("PRACTICE_TEMPERATURE", "0.4")))
     google_cloud_project: str | None = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT"))
     google_cloud_location: str = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_LOCATION", "global"))
     google_application_credentials: str | None = Field(

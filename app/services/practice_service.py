@@ -20,10 +20,16 @@ Interaction style:
 - Lead the conversation mainly through guided question-and-answer.
 - Ask one main question at a time and wait for the student's response before continuing.
 - Use short, clear, familiar spoken English.
-- Keep each teacher turn brief and easy to understand.
+- Keep each teacher turn to one or two short sentences.
+- Keep most teacher turns under about 20 English words in total.
 - Use direct questions and simple follow-up questions.
 - Reuse key words and sentence patterns naturally when helpful.
 - Encourage the student to say a little more, but do not overload the student.
+- Ask concrete, answerable questions about the student, the classroom, the picture, daily actions, likes, or plans.
+- If you use role-play, state the scene plainly first in one short sentence.
+- Once a role-play scene is set, keep your role consistent until you clearly say the role-play is changing.
+- Do not ask the student to guess something that exists only in your mind or in an unstated imaginary scene.
+- Do not use abstract, poetic, dramatic, or tricky wording.
 - Use English only.
 
 Error handling:
@@ -41,9 +47,10 @@ Conversation goals:
 Behavior priority:
 1. Stay on the current unit topic.
 2. Keep the language suitable for Grades 3-4.
-3. Help the student speak in short, manageable English.
+3. Prefer concrete, natural, easy-to-answer questions over creative or imaginary ones.
 4. Prefer natural continuation over explicit correction.
-5. Keep the dialogue simple, spoken, and engaging.
+5. Help the student speak in short, manageable English.
+6. Keep the dialogue simple, spoken, and engaging.
 """.strip()
 
 DEFAULT_PROMPT_TEMPLATE_5_6 = """
@@ -58,10 +65,17 @@ Interaction style:
 - Lead the conversation mainly through guided question-and-answer.
 - Ask one main question at a time and wait for the student's response before continuing.
 - Use clear spoken English with slightly richer sentence variety.
+- Keep each teacher turn to one or two short sentences.
+- Keep most teacher turns under about 24 English words in total.
 - Ask questions that encourage short but meaningful expansion.
 - Help the student combine key words and sentence patterns more flexibly.
 - Allow slightly more natural follow-up and scene extension when it still fits the unit.
 - Keep role-play light, focused, and age-appropriate.
+- Once a role-play scene is set, keep your role consistent until you clearly say the role-play is changing.
+- Ask concrete, answerable questions grounded in the student, the classroom, daily life, or a clearly stated simple scene.
+- If you use role-play, state the scene plainly first instead of jumping into an unstated situation.
+- Do not ask the student to guess something that exists only in your mind or in an unstated imaginary scene.
+- Do not use abstract, poetic, dramatic, or tricky wording.
 - Use English only.
 
 Error handling:
@@ -79,12 +93,16 @@ Conversation goals:
 Behavior priority:
 1. Stay on the current unit topic.
 2. Keep the language suitable for Grades 5-6.
-3. Help the student speak in clear and meaningful English.
+3. Prefer concrete, natural, easy-to-answer questions over creative or imaginary ones.
 4. Prefer natural continuation over explicit correction.
-5. Keep the dialogue spoken, focused, and engaging.
+5. Help the student speak in clear and meaningful English.
+6. Keep the dialogue spoken, focused, and engaging.
 """.strip()
 
-FINAL_PROMPT_INSTRUCTION = "Now begin the oral practice with a natural opening line as the teacher."
+FINAL_PROMPT_INSTRUCTION = (
+    "Now begin the oral practice with one short, natural teacher line. "
+    "Keep it concrete, easy to answer, and clearly tied to the unit."
+)
 
 _DIGIT_GRADE_PATTERN = re.compile(r"(?<!\d)([3-6])(?:\s*[AaBb上下册]?|\s*年级)(?!\d)", re.IGNORECASE)
 _CHINESE_GRADE_MAP = {
@@ -209,6 +227,8 @@ class PracticeService:
         lines.append(f"- Key sentence patterns: {' | '.join(unit_context['key_sentence_patterns'])}")
         if unit_context["unit_task"]:
             lines.append(f"- Optional unit task: {unit_context['unit_task']}")
+        for guidance in unit_context.get("practice_guidance", []):
+            lines.append(f"- Practice guidance: {guidance}")
         lines.extend(["", final_instruction.strip()])
         return "\n".join(lines).strip()
 
@@ -232,16 +252,51 @@ class PracticeService:
             if item.get("pattern", "").strip()
         ][:5]
         unit_task = unit_package.get("unit_task", {}).get("task_intro", "") or ""
+        unit_theme = (
+            unit.get("unit_theme")
+            or unit_package.get("unit_prompt", {}).get("unit_theme")
+            or classification.get("unit_name", "")
+        )
 
         return {
             "textbook_name": payload.get("book", {}).get("textbook_name") or classification.get("textbook_name", ""),
             "unit_code": classification.get("unit_code", ""),
             "unit_name": classification.get("unit_name", ""),
-            "unit_theme": unit.get("unit_theme") or unit_package.get("unit_prompt", {}).get("unit_theme") or classification.get("unit_name", ""),
+            "unit_theme": unit_theme,
             "unit_task": unit_task.strip(),
             "key_vocabulary": vocabulary,
             "key_sentence_patterns": sentence_patterns,
+            "practice_guidance": self._build_practice_guidance(unit_task=unit_task, unit_theme=unit_theme, sentence_patterns=sentence_patterns),
         }
+
+    def _build_practice_guidance(
+        self,
+        *,
+        unit_task: str,
+        unit_theme: str,
+        sentence_patterns: list[str],
+    ) -> list[str]:
+        guidance: list[str] = []
+        lowered_task = unit_task.lower()
+        lowered_theme = unit_theme.lower()
+        lowered_patterns = " | ".join(sentence_patterns).lower()
+        shopping_markers = ("shopping", "购物", "顾客", "售货员", "店员", "价格", "how much", "yuan", "store", "buy", "sell")
+        if any(marker in unit_task or marker in unit_theme for marker in ("购物", "顾客", "售货员", "店员", "价格")) or any(
+            marker in lowered_task or marker in lowered_theme or marker in lowered_patterns
+            for marker in shopping_markers
+            if marker.isascii()
+        ):
+            guidance.extend(
+                [
+                    "In this shopping practice, let the student act as the customer first unless the task clearly says otherwise.",
+                    "You should usually take the shopkeeper role and answer price questions briefly and naturally.",
+                    "Guide the student to ask target questions such as 'How much is ...?' or 'How much are ...?' instead of mainly asking the student to give prices.",
+                    "Do not switch roles in the middle of the shopping scene unless you clearly announce a new role-play setup.",
+                    "As the shopkeeper, do not ask customer-side price questions such as 'How much is it?' or 'How much are they?'.",
+                    "If the student chooses an item but has not asked the price yet, prompt the student to ask about the price instead of asking it yourself.",
+                ]
+            )
+        return guidance
 
     def _detect_grade_band(self, file_name: str, payload: dict[str, Any], unit_package: dict[str, Any]) -> str:
         candidates = [

@@ -89,6 +89,33 @@ def test_get_context_builds_prompt_preview(tmp_path):
     assert payload["unit"]["unit_theme"] == "Talk about weekend plans"
     assert "Current unit context:" in payload["prompt"]["final_prompt_preview"]
     assert "Key vocabulary: park, library" in payload["prompt"]["final_prompt_preview"]
+    assert "Do not ask the student to guess something that exists only in your mind" in payload["prompt"]["default_template"]
+    assert "Keep most teacher turns under about 20 English words in total." in payload["prompt"]["default_template"]
+    assert "keep your role consistent until you clearly say the role-play is changing" in payload["prompt"]["default_template"]
+    assert "Keep it concrete, easy to answer, and clearly tied to the unit." in payload["prompt"]["final_prompt_preview"]
+
+
+def test_get_context_adds_shopping_role_guidance(tmp_path):
+    job_service = StubJobService()
+    unit = job_service.payload["units"][0]
+    unit["unit"]["unit_theme"] = "购物与价格询问"
+    unit["unit"]["classification"]["unit_name"] = "Shopping"
+    unit["sentence_patterns"] = [
+        {"pattern": "How much is it? / It's X yuan."},
+        {"pattern": "How much are they? / They are X yuan."},
+    ]
+    unit["unit_task"] = {"task_intro": "学生选择商品并扮演顾客和售货员进行购物对话。"}
+    service = PracticeService(job_service, StubPracticeClient(configured=False))
+
+    payload = service.get_context("job_demo", "job_demo_unit_1")
+    final_prompt = payload["prompt"]["final_prompt_preview"]
+
+    assert "let the student act as the customer first" in final_prompt
+    assert "take the shopkeeper role" in final_prompt
+    assert "Guide the student to ask target questions such as 'How much is ...?'" in final_prompt
+    assert "Do not switch roles in the middle of the shopping scene" in final_prompt
+    assert "do not ask customer-side price questions" in final_prompt
+    assert "prompt the student to ask about the price instead of asking it yourself" in final_prompt
 
 
 def test_chat_requires_provider_configuration(tmp_path):

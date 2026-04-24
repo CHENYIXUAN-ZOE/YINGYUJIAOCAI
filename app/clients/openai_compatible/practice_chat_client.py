@@ -39,7 +39,7 @@ class OpenAICompatiblePracticeChatClient:
         request_payload = {
             "model": self.model_name(),
             "messages": messages,
-            "temperature": 0.7,
+            "temperature": self.settings.practice_temperature,
             "stream": False,
         }
         if self._should_disable_thinking():
