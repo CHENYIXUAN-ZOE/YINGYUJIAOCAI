@@ -724,9 +724,11 @@ async function handleWorkspaceExport(format, button) {
       export_scope: selectedUnitIds.length ? "unit" : "book",
       unit_ids: selectedUnitIds,
     });
+    const fileName = `${metadata.export_id}.${metadata.format}`;
+    triggerFileDownload(metadata.download_url, fileName);
     setHtml(
       "export-feedback",
-      `导出完成：<a href="${escapeHtml(metadata.download_url)}">${escapeHtml(metadata.export_id)}</a>`,
+      `${escapeHtml(exportFormatLabel(metadata.format))} 导出完成，已开始下载：<a href="${escapeHtml(metadata.download_url)}" download="${escapeHtml(fileName)}">${escapeHtml(fileName)}</a>`,
     );
     await loadWorkspaceOverview();
   } catch (error) {

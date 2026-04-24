@@ -169,6 +169,14 @@ def patch_parse_pipeline(monkeypatch, units: list[dict] | None = None):
         ],
     )
     monkeypatch.setattr("app.services.job_service.section_classifier.classify", lambda doc, units: units)
+    monkeypatch.setattr(
+        "app.services.job_service.unit_detector.assess_detection",
+        lambda doc, units: {"low_confidence": False, "confidence": 0.9},
+    )
+    monkeypatch.setattr(
+        "app.services.job_service.section_classifier.assess_classification",
+        lambda doc, units: {"low_confidence": False, "confidence": 0.9},
+    )
 
 
 def test_start_parse_persists_generated_result(tmp_path, monkeypatch):
@@ -233,6 +241,54 @@ def test_start_parse_marks_job_failed_when_generation_errors(tmp_path, monkeypat
     failed_job = service.get_job(job.job_id)
     assert failed_job.status == ParseStatus.failed
     assert "boom" in (failed_job.error_message or "")
+
+
+def test_start_parse_fails_on_low_confidence_unit_detection(tmp_path, monkeypatch):
+    settings = build_settings(tmp_path)
+    patch_parse_pipeline(monkeypatch)
+    monkeypatch.setattr(
+        "app.services.job_service.unit_detector.assess_detection",
+        lambda doc, units: {
+            "low_confidence": True,
+            "confidence": 0.18,
+            "low_confidence_reasons": ["single_unit_on_large_book"],
+        },
+    )
+    service = build_service(settings, StubUnitContentGenerator())
+
+    job = service.create_job("sample.pdf", b"%PDF-1.4")
+
+    with pytest.raises(AppError) as exc_info:
+        service.start_parse(job.job_id)
+
+    assert exc_info.value.code == "LOW_CONFIDENCE_UNIT_DETECTION"
+    failed_job = service.get_job(job.job_id)
+    assert failed_job.status == ParseStatus.failed
+    assert failed_job.last_error_code == "LOW_CONFIDENCE_UNIT_DETECTION"
+
+
+def test_start_parse_fails_on_low_confidence_section_classification(tmp_path, monkeypatch):
+    settings = build_settings(tmp_path)
+    patch_parse_pipeline(monkeypatch)
+    monkeypatch.setattr(
+        "app.services.job_service.section_classifier.assess_classification",
+        lambda doc, units: {
+            "low_confidence": True,
+            "confidence": 0.24,
+            "low_confidence_reasons": ["most_substantial_units_lack_section_signals"],
+        },
+    )
+    service = build_service(settings, StubUnitContentGenerator())
+
+    job = service.create_job("sample.pdf", b"%PDF-1.4")
+
+    with pytest.raises(AppError) as exc_info:
+        service.start_parse(job.job_id)
+
+    assert exc_info.value.code == "LOW_CONFIDENCE_SECTION_CLASSIFICATION"
+    failed_job = service.get_job(job.job_id)
+    assert failed_job.status == ParseStatus.failed
+    assert failed_job.last_error_code == "LOW_CONFIDENCE_SECTION_CLASSIFICATION"
 
 
 def test_export_result_writes_xlsx_workbook(tmp_path, monkeypatch):

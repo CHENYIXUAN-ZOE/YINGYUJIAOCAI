@@ -192,6 +192,8 @@ def is_appendix_title(line: str) -> bool:
 
 def classify_section_heading(line: str) -> str | None:
     normalized = strip_trailing_page_number(normalize_unit_header_candidate(line))
+    if normalized.endswith((".", "!", "?", "。", "！", "？")):
+        return None
     lowered = normalized.casefold()
     compact = re.sub(r"[^a-z\u4e00-\u9fff ]+", " ", lowered)
     compact = re.sub(r"\s+", " ", compact).strip()
@@ -271,6 +273,8 @@ def looks_like_vocabulary_entry(line: str) -> bool:
         return False
     if POS_TAG_PATTERN.search(normalized):
         return True
+    if normalized.endswith((".", "!", "。", "！")):
+        return False
     english_tokens = extract_english_tokens(normalized)
     if not english_tokens or len(english_tokens) > 4:
         return False

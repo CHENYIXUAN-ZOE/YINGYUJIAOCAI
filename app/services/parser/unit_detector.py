@@ -12,6 +12,13 @@ from app.services.parser.heuristics import (
 )
 
 
+def _tag_units(units: list[dict], *, detection_source: str, base_confidence: float) -> list[dict]:
+    for unit in units:
+        unit["detection_source"] = detection_source
+        unit["detection_confidence"] = base_confidence
+    return units
+
+
 def _finalize_unit(unit: dict) -> dict:
     unit["lines"] = [normalize_line(line) for line in unit.get("lines", []) if normalize_line(line)]
     unit["source_pages"] = sorted(set(unit.get("source_pages", [1])))
@@ -294,6 +301,68 @@ def _score_units(units: list[dict], num_pages: int, *, prefer_front_start: bool)
     return score
 
 
+def assess_detection(document: dict, units: list[dict]) -> dict:
+    num_pages = int(document.get("page_count") or len(document.get("pages") or []) or 1)
+    unit_count = len(units)
+    detection_source = units[0].get("detection_source") if units else None
+    warnings: list[str] = []
+    low_confidence_reasons: list[str] = []
+
+    spans = [
+        (min(unit.get("source_pages", [1])), max(unit.get("source_pages", [1])))
+        for unit in units
+        if unit.get("source_pages")
+    ]
+    starts = [start for start, _ in spans]
+    ends = [end for _, end in spans]
+    coverage_pages = sorted({page for unit in units for page in unit.get("source_pages", [])})
+    coverage_ratio = len(coverage_pages) / max(num_pages, 1)
+
+    if not units:
+        low_confidence_reasons.append("no_units_detected")
+    if starts and starts != sorted(starts):
+        low_confidence_reasons.append("non_monotonic_unit_order")
+    if any(previous_end >= next_start for previous_end, next_start in zip(ends, starts[1:])):
+        low_confidence_reasons.append("overlapping_unit_ranges")
+    if num_pages >= 12 and detection_source == "fallback":
+        low_confidence_reasons.append("fallback_detection_on_multi_page_book")
+    if num_pages >= 24 and unit_count == 1:
+        low_confidence_reasons.append("single_unit_on_large_book")
+    if num_pages >= 24 and coverage_ratio < 0.35:
+        warnings.append("low_page_coverage")
+        if unit_count <= 2:
+            low_confidence_reasons.append("coverage_too_low_for_detected_units")
+
+    unique_codes = {unit.get("unit_code") for unit in units if unit.get("unit_code")}
+    if unit_count and len(unique_codes) != unit_count:
+        warnings.append("duplicate_unit_codes")
+
+    confidence = max(
+        0.05,
+        min(
+            1.0,
+            (
+                float(units[0].get("detection_confidence", 0.8))
+                if units
+                else 0.0
+            )
+            - 0.22 * len(low_confidence_reasons)
+            - 0.05 * len(warnings),
+        ),
+    )
+
+    return {
+        "unit_count": unit_count,
+        "page_count": num_pages,
+        "detection_source": detection_source,
+        "coverage_ratio": round(coverage_ratio, 3),
+        "warnings": warnings,
+        "low_confidence_reasons": low_confidence_reasons,
+        "low_confidence": bool(low_confidence_reasons),
+        "confidence": round(confidence, 3),
+    }
+
+
 def detect(document: dict) -> list[dict]:
     stem = document.get("stem", "教材")
     content_page_map = _group_page_lines(document, prefer_filtered=True)
@@ -308,9 +377,9 @@ def detect(document: dict) -> list[dict]:
     body_score = _score_units(body_units, num_pages, prefer_front_start=False)
 
     if toc_units and toc_score >= body_score:
-        return toc_units
+        return _tag_units(toc_units, detection_source="toc", base_confidence=0.92)
     if body_units:
-        return body_units
+        return _tag_units(body_units, detection_source="body", base_confidence=0.82)
     if toc_units:
-        return toc_units
-    return _fallback_unit(stem, page_map)
+        return _tag_units(toc_units, detection_source="toc", base_confidence=0.76)
+    return _tag_units(_fallback_unit(stem, page_map), detection_source="fallback", base_confidence=0.22)

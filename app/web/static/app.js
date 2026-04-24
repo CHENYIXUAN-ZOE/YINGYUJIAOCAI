@@ -82,6 +82,32 @@ function setText(id, text) {
   }
 }
 
+function exportFormatLabel(format) {
+  if (format === "xlsx") {
+    return "Excel";
+  }
+  if (format === "markdown") {
+    return "Markdown";
+  }
+  return "JSON";
+}
+
+function triggerFileDownload(downloadUrl, fileName = "") {
+  if (!downloadUrl) {
+    return;
+  }
+  const anchor = document.createElement("a");
+  anchor.href = downloadUrl;
+  if (fileName) {
+    anchor.download = fileName;
+  }
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
 function buildJobLinks(jobId) {
   const safeJobId = encodeURIComponent(jobId);
   return `
@@ -1063,9 +1089,11 @@ async function initResultPage() {
           format: button.dataset.exportFormat,
           approved_only: document.getElementById("approved-only-toggle")?.checked || false,
         });
+        const fileName = `${metadata.export_id}.${metadata.format}`;
+        triggerFileDownload(metadata.download_url, fileName);
         setHtml(
           "export-feedback",
-          `导出完成：<a href="${escapeHtml(metadata.download_url)}">${escapeHtml(metadata.export_id)}</a>`,
+          `${escapeHtml(exportFormatLabel(metadata.format))} 导出完成，已开始下载：<a href="${escapeHtml(metadata.download_url)}" download="${escapeHtml(fileName)}">${escapeHtml(fileName)}</a>`,
         );
       } catch (error) {
         const blockedCount = Array.isArray(error.details?.blocked_items) ? error.details.blocked_items.length : 0;
