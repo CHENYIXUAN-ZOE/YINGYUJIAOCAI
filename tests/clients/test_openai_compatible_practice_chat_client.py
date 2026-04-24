@@ -29,6 +29,7 @@ def build_settings(tmp_path) -> Settings:
         practice_provider_name="qwen",
         practice_model="qwen3.5-flash",
         practice_timeout_sec=60,
+        practice_temperature=0.4,
     )
     settings.ensure_directories()
     return settings
@@ -56,6 +57,7 @@ def test_create_chat_completion_parses_string_content(tmp_path, monkeypatch):
         assert timeout == 60
         payload = json.loads(request.data.decode("utf-8"))
         assert payload["enable_thinking"] is False
+        assert payload["temperature"] == 0.4
         return StubHTTPResponse(
             {
                 "id": "req_demo",

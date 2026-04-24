@@ -7,6 +7,7 @@ def test_settings_read_environment_at_instantiation(monkeypatch):
     monkeypatch.setenv("PRACTICE_PROVIDER_NAME", "qwen")
     monkeypatch.setenv("PRACTICE_MODEL", "qwen3.5-flash")
     monkeypatch.setenv("PRACTICE_TIMEOUT_SEC", "90")
+    monkeypatch.setenv("PRACTICE_TEMPERATURE", "0.35")
 
     settings = Settings()
 
@@ -15,3 +16,4 @@ def test_settings_read_environment_at_instantiation(monkeypatch):
     assert settings.practice_provider_name == "qwen"
     assert settings.practice_model == "qwen3.5-flash"
     assert settings.practice_timeout_sec == 90
+    assert settings.practice_temperature == 0.35

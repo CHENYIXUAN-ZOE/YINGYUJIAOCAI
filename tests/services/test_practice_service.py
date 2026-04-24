@@ -89,6 +89,9 @@ def test_get_context_builds_prompt_preview(tmp_path):
     assert payload["unit"]["unit_theme"] == "Talk about weekend plans"
     assert "Current unit context:" in payload["prompt"]["final_prompt_preview"]
     assert "Key vocabulary: park, library" in payload["prompt"]["final_prompt_preview"]
+    assert "Do not ask the student to guess something that exists only in your mind" in payload["prompt"]["default_template"]
+    assert "Keep most teacher turns under about 20 English words in total." in payload["prompt"]["default_template"]
+    assert "Keep it concrete, easy to answer, and clearly tied to the unit." in payload["prompt"]["final_prompt_preview"]
 
 
 def test_chat_requires_provider_configuration(tmp_path):
