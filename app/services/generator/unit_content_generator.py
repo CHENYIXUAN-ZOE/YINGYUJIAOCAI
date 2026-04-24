@@ -249,19 +249,22 @@ class UnitContentGenerator:
     def _build_with_fallback(self, unit_record: UnitRecord, raw_unit: dict) -> UnitPackage:
         classification = unit_record.classification
         unit_id = unit_record.unit_id
+        extracted_vocabulary = vocabulary_extractor.extract(raw_unit)
+        extracted_sentence_patterns = sentence_extractor.extract(raw_unit)
+        extracted_dialogues = dialogue_extractor.extract(raw_unit)
         vocabulary = vocabulary_generator.generate(
             classification,
-            vocabulary_extractor.extract(raw_unit),
+            extracted_vocabulary,
             unit_id,
         )
         sentence_patterns = sentence_generator.generate(
             classification,
-            sentence_extractor.extract(raw_unit),
+            extracted_sentence_patterns,
             unit_id,
         )
         dialogue_samples = dialogue_generator.generate(
             classification,
-            dialogue_extractor.extract(raw_unit),
+            extracted_dialogues,
             unit_id,
         )
 
@@ -270,8 +273,21 @@ class UnitContentGenerator:
             vocabulary=vocabulary,
             sentence_patterns=sentence_patterns,
             dialogue_samples=dialogue_samples,
-            unit_task=task_generator.generate(classification, unit_id),
-            unit_prompt=prompt_generator.generate(classification, unit_id),
+            unit_task=task_generator.generate(
+                classification,
+                unit_id,
+                unit_theme=raw_unit.get("unit_theme"),
+                vocabulary=vocabulary,
+                sentence_patterns=sentence_patterns,
+            ),
+            unit_prompt=prompt_generator.generate(
+                classification,
+                unit_id,
+                unit_theme=raw_unit.get("unit_theme"),
+                vocabulary=vocabulary,
+                sentence_patterns=sentence_patterns,
+                dialogue_samples=dialogue_samples,
+            ),
         )
 
     def _payload_to_unit_package(self, unit_record: UnitRecord, source_pages: list[int], payload: dict[str, Any]) -> UnitPackage:

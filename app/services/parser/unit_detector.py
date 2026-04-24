@@ -20,23 +20,29 @@ def _finalize_unit(unit: dict) -> dict:
     return unit
 
 
-def _fallback_unit(stem: str) -> list[dict]:
+def _fallback_unit(stem: str, page_map: dict[int, list[str]]) -> list[dict]:
     fallback_name = stem[:18] if stem else "教材单元"
+    lines: list[str] = []
+    source_pages: list[int] = []
+    for page_num in sorted(page_map):
+        source_pages.append(page_num)
+        lines.extend(page_map[page_num])
     return [
-        {
-            "unit_code": "Unit 1",
-            "unit_name": fallback_name,
-            "unit_theme": fallback_name,
-            "source_pages": [1],
-            "lines": [],
-            "text": "",
-        }
+        _finalize_unit(
+            {
+                "unit_code": "Unit 1",
+                "unit_name": fallback_name,
+                "unit_theme": fallback_name,
+                "source_pages": source_pages or [1],
+                "lines": lines,
+            }
+        )
     ]
 
 
 def _group_page_lines(document: dict) -> dict[int, list[str]]:
     grouped: dict[int, list[str]] = defaultdict(list)
-    page_lines = document.get("page_lines") or []
+    page_lines = document.get("content_page_lines") or document.get("page_lines") or []
     for item in page_lines:
         page_num = int(item.get("page_num", 1))
         line = normalize_line(item.get("line", ""))
@@ -89,6 +95,10 @@ def _scan_toc_entries(page_num: int, lines: list[str]) -> list[dict]:
         seen.add(key)
         deduped.append(entry)
     return deduped
+
+
+def _toc_pages(page_map: dict[int, list[str]]) -> set[int]:
+    return {page_num for page_num, lines in page_map.items() if len(_scan_toc_entries(page_num, lines)) >= 2}
 
 
 def _detect_toc_units(page_map: dict[int, list[str]], num_pages: int) -> list[dict]:
@@ -183,25 +193,52 @@ def _detect_toc_units(page_map: dict[int, list[str]], num_pages: int) -> list[di
     return units
 
 
-def _detect_from_body(page_map: dict[int, list[str]], stem: str) -> list[dict]:
+def _pick_page_header(lines: list[str]) -> tuple[str, str, str] | None:
+    candidates: list[tuple[int, tuple[str, str, str]]] = []
+    for index, line in enumerate(lines[:8]):
+        header = looks_like_unit_header(line)
+        if not header:
+            continue
+        score = 30 - index * 4
+        if extract_printed_page_number(line) is not None:
+            score -= 8
+        if header[2]:
+            score += 2
+        candidates.append((score, header))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def _detect_from_body(page_map: dict[int, list[str]]) -> list[dict]:
     units: list[dict] = []
     current: dict | None = None
-
-    toc_pages = {page_num for page_num, lines in page_map.items() if len(_scan_toc_entries(page_num, lines)) >= 2}
+    toc_pages = _toc_pages(page_map)
 
     for page_num in sorted(page_map):
         lines = page_map[page_num]
         if page_num in toc_pages:
             continue
-
-        page_header = next((looks_like_unit_header(line) for line in lines if looks_like_unit_header(line)), None)
-        if page_header:
+        if lines and is_appendix_title(lines[0]):
             if current:
                 units.append(_finalize_unit(current))
+                current = None
+            continue
+
+        page_header = _pick_page_header(lines)
+        if page_header:
             kind, code, name = page_header
+            next_unit_code = f"{kind} {code}"
+            if current and current["unit_code"] == next_unit_code:
+                current["source_pages"].append(page_num)
+                current["lines"].extend(lines)
+                continue
+            if current:
+                units.append(_finalize_unit(current))
             current = {
-                "unit_code": f"{kind} {code}",
-                "unit_name": name or f"{kind} {code}",
+                "unit_code": next_unit_code,
+                "unit_name": name or next_unit_code,
                 "unit_theme": name or None,
                 "source_pages": [page_num],
                 "lines": list(lines),
@@ -215,33 +252,47 @@ def _detect_from_body(page_map: dict[int, list[str]], stem: str) -> list[dict]:
 
     if current:
         units.append(_finalize_unit(current))
+    return units
 
-    if units:
-        return units
 
-    current = {
-        "unit_code": "Unit 1",
-        "unit_name": stem[:18] if stem else "教材单元",
-        "unit_theme": None,
-        "source_pages": [],
-        "lines": [],
-    }
-    for page_num in sorted(page_map):
-        current["source_pages"].append(page_num)
-        current["lines"].extend(page_map[page_num])
-    return [_finalize_unit(current)]
+def _score_units(units: list[dict], num_pages: int, *, prefer_front_start: bool) -> int:
+    if not units:
+        return -10_000
+    starts = [unit["source_pages"][0] for unit in units if unit.get("source_pages")]
+    if not starts:
+        return -10_000
+    score = len(units) * 10
+    if starts == sorted(starts):
+        score += 10
+    else:
+        score -= 20
+    if prefer_front_start:
+        score += 6 if starts[0] <= max(12, num_pages // 3) + 2 else -8
+    else:
+        score += 4 if starts[0] <= max(20, num_pages // 2) else -4
+    if len(units) == 1 and num_pages >= 20:
+        score -= 25
+    coverage = sum(max(1, len(unit.get("source_pages", []))) for unit in units)
+    if coverage >= max(2, num_pages // 2):
+        score += 5
+    return score
+
 
 def detect(document: dict) -> list[dict]:
     stem = document.get("stem", "教材")
     page_map = _group_page_lines(document)
-    num_pages = max(page_map) if page_map else max(len(document.get("page_texts", [])), 1)
+    num_pages = document.get("page_count") or (max(page_map) if page_map else max(len(document.get("page_texts", [])), 1))
 
     toc_units = _detect_toc_units(page_map, num_pages)
-    if toc_units:
-        return toc_units
+    body_units = _detect_from_body(page_map)
 
-    body_units = _detect_from_body(page_map, stem)
+    toc_score = _score_units(toc_units, num_pages, prefer_front_start=True)
+    body_score = _score_units(body_units, num_pages, prefer_front_start=False)
+
+    if toc_units and toc_score >= body_score:
+        return toc_units
     if body_units:
         return body_units
-
-    return _fallback_unit(stem)
+    if toc_units:
+        return toc_units
+    return _fallback_unit(stem, page_map)
