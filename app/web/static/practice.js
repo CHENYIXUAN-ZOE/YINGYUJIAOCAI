@@ -244,8 +244,8 @@ function renderPracticeTipsPanel() {
             <article class="practice-insight-card">
               <h4>${escapeHtml(tip.title || "这一步可以试试")}</h4>
               ${tip.message_cn ? `<p>${escapeHtml(tip.message_cn)}</p>` : ""}
-              ${tip.example_en ? `<div class="practice-example-block"><span class="meta-label">英文参考</span><strong>${escapeHtml(tip.example_en)}</strong></div>` : ""}
-              ${tip.reason_cn ? `<p class="meta-text">${escapeHtml(tip.reason_cn)}</p>` : ""}
+              ${tip.example_en ? `<div class="practice-example-block"><span class="meta-label">可以这样说</span><strong>${escapeHtml(tip.example_en)}</strong></div>` : ""}
+              ${tip.optional_next_en ? `<div class="practice-example-block"><span class="meta-label">接着还可以这样说</span><strong>${escapeHtml(tip.optional_next_en)}</strong></div>` : ""}
             </article>
           `,
         )
