@@ -119,12 +119,17 @@ class PracticeService:
         self.practice_client = practice_client
 
     def get_context(self, job_id: str, unit_id: str) -> dict[str, Any]:
+        context = self._build_context(job_id, unit_id)
+        return {key: value for key, value in context.items() if key != "policy"}
+
+    def _build_context(self, job_id: str, unit_id: str) -> dict[str, Any]:
         job = self.job_service.get_job(job_id)
         payload = self.job_service.get_result(job_id, approved_only=False, include_review_records=False)
         unit_package = self._find_unit_package(payload, unit_id)
         grade_band = self._detect_grade_band(job.file_name, payload, unit_package)
         default_template = self._get_default_template(grade_band)
         unit_context = self._build_unit_context(payload, unit_package)
+        practice_policy = self._build_practice_policy(unit_package, unit_context)
 
         return {
             "job": {
@@ -159,6 +164,7 @@ class PracticeService:
                 "configured": self.practice_client.is_configured(),
                 "model": self.practice_client.model_name(),
             },
+            "policy": practice_policy,
         }
 
     def chat(self, payload: PracticeChatRequest) -> dict[str, Any]:
@@ -170,7 +176,7 @@ class PracticeService:
             )
 
         # Validate job and unit against existing structured content.
-        context = self.get_context(payload.job_id, payload.unit_id)
+        context = self._build_context(payload.job_id, payload.unit_id)
 
         final_prompt = payload.final_prompt.strip()
         if not final_prompt:
@@ -178,10 +184,10 @@ class PracticeService:
 
         outgoing_messages: list[dict[str, str]] = [{"role": "system", "content": final_prompt}]
         for item in payload.messages:
-            content = item.content.strip()
+            content = self._message_content(item).strip()
             if not content:
                 raise AppError("PRACTICE_INVALID_MESSAGES", "message content cannot be empty", status_code=400)
-            outgoing_messages.append({"role": item.role, "content": content})
+            outgoing_messages.append({"role": self._message_role(item), "content": content})
 
         student_message = (payload.student_message or "").strip()
         if payload.is_opening_turn:
@@ -197,7 +203,13 @@ class PracticeService:
             outgoing_messages.append({"role": "user", "content": student_message})
 
         response = self.practice_client.create_chat_completion(outgoing_messages)
-        assistant_message = self._apply_assistant_guardrails(context, response.assistant_message)
+        assistant_message = self._apply_assistant_guardrails(
+            context,
+            response.assistant_message,
+            payload.messages,
+            student_message,
+            payload.is_opening_turn,
+        )
         round_count = self._count_rounds(payload.messages, student_message, payload.is_opening_turn)
 
         return {
@@ -270,6 +282,16 @@ class PracticeService:
             "practice_guidance": self._build_practice_guidance(unit_task=unit_task, unit_theme=unit_theme, sentence_patterns=sentence_patterns),
         }
 
+    def _build_practice_policy(self, unit_package: dict[str, Any], unit_context: dict[str, Any]) -> dict[str, Any]:
+        if self._is_shopping_unit(unit_context):
+            items = self._extract_shopping_items(unit_package)
+            return {
+                "type": "shopping_roleplay",
+                "items": items,
+                "price_answers": self._extract_shopping_price_answers(unit_package, items),
+            }
+        return {"type": "default"}
+
     def _build_practice_guidance(
         self,
         *,
@@ -331,28 +353,36 @@ class PracticeService:
         raise AppError("PRACTICE_INVALID_GRADE_BAND", "unsupported grade band", status_code=400)
 
     def _count_rounds(self, prior_messages: list[Any], student_message: str, is_opening_turn: bool) -> int:
-        completed_user_turns = sum(1 for item in prior_messages if getattr(item, "role", "") == "user")
+        completed_user_turns = sum(1 for item in prior_messages if self._message_role(item) == "user")
         if is_opening_turn:
             return completed_user_turns
         return completed_user_turns + (1 if student_message else 0)
 
-    def _apply_assistant_guardrails(self, context: dict[str, Any], assistant_message: str) -> str:
+    def _apply_assistant_guardrails(
+        self,
+        context: dict[str, Any],
+        assistant_message: str,
+        prior_messages: list[Any],
+        student_message: str,
+        is_opening_turn: bool,
+    ) -> str:
         normalized = " ".join((assistant_message or "").split()).strip()
         if not normalized:
             return normalized
-        if self._looks_like_shopping_price_practice(context):
-            return self._rewrite_shopkeeper_price_prompt(normalized)
+        policy = context.get("policy", {}) if isinstance(context, dict) else {}
+        if policy.get("type") == "shopping_roleplay":
+            planned = self._plan_shopping_response(policy, prior_messages, student_message, is_opening_turn)
+            if planned:
+                return planned
         return normalized
 
-    def _looks_like_shopping_price_practice(self, context: dict[str, Any]) -> bool:
-        unit = context.get("unit", {}) if isinstance(context, dict) else {}
-        summary = context.get("summary", {}) if isinstance(context, dict) else {}
+    def _is_shopping_unit(self, unit_context: dict[str, Any]) -> bool:
         joined = " ".join(
             [
-                str(unit.get("unit_name", "") or ""),
-                str(unit.get("unit_theme", "") or ""),
-                str(unit.get("unit_task", "") or ""),
-                " | ".join(summary.get("sentence_patterns", []) or []),
+                str(unit_context.get("unit_name", "") or ""),
+                str(unit_context.get("unit_theme", "") or ""),
+                str(unit_context.get("unit_task", "") or ""),
+                " | ".join(unit_context.get("key_sentence_patterns", []) or []),
             ]
         ).lower()
         return any(
@@ -360,23 +390,156 @@ class PracticeService:
             for marker in ["shopping", "购物", "顾客", "售货员", "店员", "价格", "how much", "yuan", "buy", "sell"]
         )
 
-    def _rewrite_shopkeeper_price_prompt(self, assistant_message: str) -> str:
-        sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", assistant_message) if part.strip()]
-        kept: list[str] = []
-        removed_price_question = False
-
-        for sentence in sentences:
-            if re.match(r"(?i)^how much (is|are)\b", sentence):
-                removed_price_question = True
+    def _extract_shopping_items(self, unit_package: dict[str, Any]) -> list[str]:
+        ignored = {"yuan", "how much", "thank you", "here is the money", "eleven", "twenty", "fifty", "one hundred"}
+        items: list[str] = []
+        for item in unit_package.get("vocabulary", []):
+            word = str(item.get("word", "") or "").strip().lower()
+            if not word or word in ignored:
                 continue
-            kept.append(sentence)
+            if word not in items:
+                items.append(word)
+        return items
 
-        if not removed_price_question:
-            return assistant_message
+    def _extract_shopping_price_answers(self, unit_package: dict[str, Any], items: list[str]) -> dict[str, str]:
+        price_answers: dict[str, str] = {}
+        item_set = set(items)
+        for dialogue in unit_package.get("dialogue_samples", []):
+            turns = dialogue.get("turns", []) or []
+            for index in range(len(turns) - 1):
+                current = turns[index]
+                nxt = turns[index + 1]
+                current_text = str(current.get("text_en", "") or "")
+                next_text = str(nxt.get("text_en", "") or "").strip()
+                if not current_text or not next_text:
+                    continue
+                lowered = current_text.lower()
+                if "how much" not in lowered:
+                    continue
+                for item in item_set:
+                    if item in lowered and item not in price_answers:
+                        price_answers[item] = next_text
+        return price_answers
 
-        has_existing_question = any(sentence.endswith("?") for sentence in kept)
-        mentions_price = any("price" in sentence.lower() for sentence in kept)
-        if not has_existing_question and not mentions_price:
-            kept.append("Do you want to know the price?")
+    def _plan_shopping_response(
+        self,
+        policy: dict[str, Any],
+        prior_messages: list[Any],
+        student_message: str,
+        is_opening_turn: bool,
+    ) -> str:
+        items = policy.get("items", []) if isinstance(policy, dict) else []
+        price_answers = policy.get("price_answers", {}) if isinstance(policy, dict) else {}
+        normalized_student = " ".join((student_message or "").split()).strip()
+        if is_opening_turn:
+            return "Hello! Welcome to my shop. What would you like to buy today?"
 
-        return " ".join(kept).strip() or "Do you want to know the price?"
+        if not normalized_student:
+            return ""
+
+        lowered_student = normalized_student.lower()
+        history = self._normalize_history(prior_messages)
+        current_item = (
+            self._detect_item_in_text(lowered_student, items)
+            or self._last_student_item(history, items)
+            or self._last_referenced_item(history, items)
+        )
+
+        if any(token in lowered_student for token in ["goodbye", "bye"]):
+            return "Goodbye!"
+        if "here is the money" in lowered_student:
+            return "Thank you!"
+        if "thank you" in lowered_student:
+            return "You're welcome."
+
+        if "how much" in lowered_student:
+            if current_item and current_item in price_answers:
+                return price_answers[current_item]
+            if "are they" in lowered_student:
+                return "They are thirty yuan."
+            return "It is twenty yuan."
+
+        if current_item:
+            if not self._has_price_nudge_for_item(history, current_item):
+                starter = "Great choice!" if any(token in lowered_student for token in ["want", "like", "take"]) else "Okay!"
+                return f"{starter} Ask me, '{self._shopping_price_question(current_item)}'"
+
+            if self._student_mentions_multiple_items(lowered_student, items):
+                choices = self._items_in_text(lowered_student, items)
+                if len(choices) >= 2:
+                    return f"Would you like the {choices[0]} or the {choices[1]} first?"
+
+            return f"Yes, the {current_item} is nice. Would you like to buy it?"
+
+        if any(token in lowered_student for token in ["want", "buy", "take", "like"]):
+            return "What would you like to buy?"
+
+        return "What would you like to buy today?"
+
+    def _normalize_history(self, prior_messages: list[Any]) -> list[dict[str, str]]:
+        history: list[dict[str, str]] = []
+        for item in prior_messages:
+            role = self._message_role(item)
+            content = " ".join(self._message_content(item).split()).strip()
+            if role and content:
+                history.append({"role": role, "content": content})
+        return history
+
+    def _detect_item_in_text(self, text: str, items: list[str]) -> str:
+        for item in sorted(items, key=len, reverse=True):
+            if item in text:
+                return item
+        return ""
+
+    def _items_in_text(self, text: str, items: list[str]) -> list[str]:
+        found: list[str] = []
+        for item in sorted(items, key=len, reverse=True):
+            if item in text and item not in found:
+                found.append(item)
+        return found
+
+    def _last_student_item(self, history: list[dict[str, str]], items: list[str]) -> str:
+        for message in reversed(history):
+            if message.get("role") != "user":
+                continue
+            detected = self._detect_item_in_text(message.get("content", "").lower(), items)
+            if detected:
+                return detected
+        return ""
+
+    def _last_referenced_item(self, history: list[dict[str, str]], items: list[str]) -> str:
+        for message in reversed(history):
+            detected = self._detect_item_in_text(message.get("content", "").lower(), items)
+            if detected:
+                return detected
+        return ""
+
+    def _has_price_nudge_for_item(self, history: list[dict[str, str]], item: str) -> bool:
+        target = f"how much is the {item}"
+        for message in history:
+            if message.get("role") != "assistant":
+                continue
+            lowered = message.get("content", "").lower()
+            if target in lowered:
+                return True
+        return False
+
+    def _student_mentions_multiple_items(self, text: str, items: list[str]) -> bool:
+        return len(self._items_in_text(text, items)) >= 2
+
+    def _shopping_price_question(self, item: str) -> str:
+        if item.endswith("s") and item != "glasses":
+            return f"How much are the {item}?"
+        if item in {"sunglasses", "glasses"}:
+            return f"How much are the {item}?"
+        return f"How much is the {item}?"
+
+    def _message_role(self, item: Any) -> str:
+        if isinstance(item, dict):
+            return str(item.get("role", "") or "").strip()
+        return str(getattr(item, "role", "") or "").strip()
+
+    def _message_content(self, item: Any) -> str:
+        if isinstance(item, dict):
+            return str(item.get("content", "") or "")
+        return str(getattr(item, "content", "") or "")

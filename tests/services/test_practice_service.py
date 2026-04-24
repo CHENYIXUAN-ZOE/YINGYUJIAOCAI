@@ -41,6 +41,7 @@ class StubJobService:
                         {"pattern": "What will you do on ...?"},
                         {"pattern": "I will ..."},
                     ],
+                    "dialogue_samples": [],
                     "unit_task": {"task_intro": "谈论周末计划"},
                     "unit_prompt": {"unit_theme": "Talk about weekend plans"},
                 }
@@ -100,9 +101,18 @@ def test_get_context_adds_shopping_role_guidance(tmp_path):
     unit = job_service.payload["units"][0]
     unit["unit"]["unit_theme"] = "购物与价格询问"
     unit["unit"]["classification"]["unit_name"] = "Shopping"
+    unit["vocabulary"] = [{"word": "doll"}, {"word": "sunglasses"}, {"word": "toy train"}, {"word": "yuan"}]
     unit["sentence_patterns"] = [
         {"pattern": "How much is it? / It's X yuan."},
         {"pattern": "How much are they? / They are X yuan."},
+    ]
+    unit["dialogue_samples"] = [
+        {
+            "turns": [
+                {"speaker": "Mary", "text_en": "How much is this doll?"},
+                {"speaker": "Shopkeeper", "text_en": "It's twenty yuan."},
+            ]
+        }
     ]
     unit["unit_task"] = {"task_intro": "学生选择商品并扮演顾客和售货员进行购物对话。"}
     service = PracticeService(job_service, StubPracticeClient(configured=False))
@@ -170,14 +180,25 @@ def test_chat_uses_provider_client_response(tmp_path):
     assert client.messages[0] == {"role": "system", "content": "final prompt"}
 
 
-def test_chat_rewrites_shopkeeper_price_question_for_shopping_unit(tmp_path):
+def test_chat_plans_shopping_price_nudge_for_first_item_choice(tmp_path):
     job_service = StubJobService()
     unit = job_service.payload["units"][0]
     unit["unit"]["unit_theme"] = "购物与价格询问"
     unit["unit"]["classification"]["unit_name"] = "Shopping"
+    unit["vocabulary"] = [{"word": "doll"}, {"word": "sunglasses"}, {"word": "toy train"}, {"word": "yuan"}]
     unit["sentence_patterns"] = [
         {"pattern": "How much is it? / It's X yuan."},
         {"pattern": "How much are they? / They are X yuan."},
+    ]
+    unit["dialogue_samples"] = [
+        {
+            "turns": [
+                {"speaker": "Mary", "text_en": "How much is this doll?"},
+                {"speaker": "Shopkeeper", "text_en": "It's twenty yuan."},
+                {"speaker": "Mary", "text_en": "How much are these sunglasses?"},
+                {"speaker": "Shopkeeper", "text_en": "They are thirty yuan."},
+            ]
+        }
     ]
     unit["unit_task"] = {"task_intro": "学生选择商品并扮演顾客和售货员进行购物对话。"}
     client = StubPracticeClient(
@@ -202,10 +223,91 @@ def test_chat_rewrites_shopkeeper_price_question_for_shopping_unit(tmp_path):
                 "prompt_template": "template",
                 "final_prompt": "final prompt",
                 "messages": [],
-                "student_message": "",
-                "is_opening_turn": True,
+                "student_message": "I want a doll.",
+                "is_opening_turn": False,
             },
         )()
     )
 
-    assert payload["assistant_message"]["content"] == "Great choice! Here is a cute doll. Do you want to know the price?"
+    assert payload["assistant_message"]["content"] == "Great choice! Ask me, 'How much is the doll?'"
+
+
+def test_chat_shopping_policy_avoids_repeating_price_nudge(tmp_path):
+    job_service = StubJobService()
+    unit = job_service.payload["units"][0]
+    unit["unit"]["unit_theme"] = "购物与价格询问"
+    unit["unit"]["classification"]["unit_name"] = "Shopping"
+    unit["vocabulary"] = [{"word": "doll"}, {"word": "toy train"}, {"word": "yuan"}]
+    unit["sentence_patterns"] = [{"pattern": "How much is it? / It's X yuan."}]
+    unit["dialogue_samples"] = [
+        {
+            "turns": [
+                {"speaker": "Mary", "text_en": "How much is this doll?"},
+                {"speaker": "Shopkeeper", "text_en": "It's twenty yuan."},
+            ]
+        }
+    ]
+    unit["unit_task"] = {"task_intro": "学生选择商品并扮演顾客和售货员进行购物对话。"}
+    service = PracticeService(job_service, StubPracticeClient(configured=True))
+
+    payload = service.chat(
+        type(
+            "Req",
+            (),
+            {
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "grade_band": "3-4",
+                "prompt_template": "template",
+                "final_prompt": "final prompt",
+                "messages": [{"role": "assistant", "content": "Great choice! Ask me, 'How much is the doll?'"}],
+                "student_message": "It is nice.",
+                "is_opening_turn": False,
+            },
+        )()
+    )
+
+    assert payload["assistant_message"]["content"] == "Yes, the doll is nice. Would you like to buy it?"
+
+
+def test_chat_shopping_policy_answers_price_from_dialogue_example(tmp_path):
+    job_service = StubJobService()
+    unit = job_service.payload["units"][0]
+    unit["unit"]["unit_theme"] = "购物与价格询问"
+    unit["unit"]["classification"]["unit_name"] = "Shopping"
+    unit["vocabulary"] = [{"word": "doll"}, {"word": "sunglasses"}, {"word": "toy train"}, {"word": "yuan"}]
+    unit["sentence_patterns"] = [
+        {"pattern": "How much is it? / It's X yuan."},
+        {"pattern": "How much are they? / They are X yuan."},
+    ]
+    unit["dialogue_samples"] = [
+        {
+            "turns": [
+                {"speaker": "Mary", "text_en": "How much is this doll?"},
+                {"speaker": "Shopkeeper", "text_en": "It's twenty yuan."},
+                {"speaker": "Mary", "text_en": "How much are these sunglasses?"},
+                {"speaker": "Shopkeeper", "text_en": "They are thirty yuan."},
+            ]
+        }
+    ]
+    unit["unit_task"] = {"task_intro": "学生选择商品并扮演顾客和售货员进行购物对话。"}
+    service = PracticeService(job_service, StubPracticeClient(configured=True))
+
+    payload = service.chat(
+        type(
+            "Req",
+            (),
+            {
+                "job_id": "job_demo",
+                "unit_id": "job_demo_unit_1",
+                "grade_band": "3-4",
+                "prompt_template": "template",
+                "final_prompt": "final prompt",
+                "messages": [],
+                "student_message": "How much are the sunglasses?",
+                "is_opening_turn": False,
+            },
+        )()
+    )
+
+    assert payload["assistant_message"]["content"] == "They are thirty yuan."
