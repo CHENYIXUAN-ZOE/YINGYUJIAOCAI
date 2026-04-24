@@ -225,6 +225,8 @@ class PracticeService:
         lines.append(f"- Key sentence patterns: {' | '.join(unit_context['key_sentence_patterns'])}")
         if unit_context["unit_task"]:
             lines.append(f"- Optional unit task: {unit_context['unit_task']}")
+        for guidance in unit_context.get("practice_guidance", []):
+            lines.append(f"- Practice guidance: {guidance}")
         lines.extend(["", final_instruction.strip()])
         return "\n".join(lines).strip()
 
@@ -248,16 +250,48 @@ class PracticeService:
             if item.get("pattern", "").strip()
         ][:5]
         unit_task = unit_package.get("unit_task", {}).get("task_intro", "") or ""
+        unit_theme = (
+            unit.get("unit_theme")
+            or unit_package.get("unit_prompt", {}).get("unit_theme")
+            or classification.get("unit_name", "")
+        )
 
         return {
             "textbook_name": payload.get("book", {}).get("textbook_name") or classification.get("textbook_name", ""),
             "unit_code": classification.get("unit_code", ""),
             "unit_name": classification.get("unit_name", ""),
-            "unit_theme": unit.get("unit_theme") or unit_package.get("unit_prompt", {}).get("unit_theme") or classification.get("unit_name", ""),
+            "unit_theme": unit_theme,
             "unit_task": unit_task.strip(),
             "key_vocabulary": vocabulary,
             "key_sentence_patterns": sentence_patterns,
+            "practice_guidance": self._build_practice_guidance(unit_task=unit_task, unit_theme=unit_theme, sentence_patterns=sentence_patterns),
         }
+
+    def _build_practice_guidance(
+        self,
+        *,
+        unit_task: str,
+        unit_theme: str,
+        sentence_patterns: list[str],
+    ) -> list[str]:
+        guidance: list[str] = []
+        lowered_task = unit_task.lower()
+        lowered_theme = unit_theme.lower()
+        lowered_patterns = " | ".join(sentence_patterns).lower()
+        shopping_markers = ("shopping", "购物", "顾客", "售货员", "店员", "价格", "how much", "yuan", "store", "buy", "sell")
+        if any(marker in unit_task or marker in unit_theme for marker in ("购物", "顾客", "售货员", "店员", "价格")) or any(
+            marker in lowered_task or marker in lowered_theme or marker in lowered_patterns
+            for marker in shopping_markers
+            if marker.isascii()
+        ):
+            guidance.extend(
+                [
+                    "In this shopping practice, let the student act as the customer first unless the task clearly says otherwise.",
+                    "You should usually take the shopkeeper role and answer price questions briefly and naturally.",
+                    "Guide the student to ask target questions such as 'How much is ...?' or 'How much are ...?' instead of mainly asking the student to give prices.",
+                ]
+            )
+        return guidance
 
     def _detect_grade_band(self, file_name: str, payload: dict[str, Any], unit_package: dict[str, Any]) -> str:
         candidates = [
